@@ -86,6 +86,8 @@ export DEEPGRAM_API_KEY=<your-key-here>
    python client.py
    ```
 
+> The application will be available at http://localhost:5000
+
 2. Use headphones to prevent audio feedback (the agent hearing itself).
 
 ## Example Interactions

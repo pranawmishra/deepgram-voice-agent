@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Voice Agent Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="content">
+        <div class="button-container">
+            <button id="startButton" class="mic-button">Start Voice Agent</button>
+            <div id="status" class="status">Microphone: Not active</div>
+        </div>
+    </div>
+    <div id="conversation" class="conversation">
+        <h2>Conversation</h2>
+        <div id="messages"></div>
+    </div>
+
+    <script>
+        const socket = io();
+        const startButton = document.getElementById('startButton');
+        const messages = document.getElementById('messages');
+        const statusDiv = document.getElementById('status');
+        let isActive = false;
+
+        async function requestMicrophonePermission() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                statusDiv.textContent = 'Microphone: Permission granted';
+                stream.getTracks().forEach(track => track.stop()); // Stop the stream as we don't need it yet
+                return true;
+            } catch (err) {
+                console.error('Error accessing microphone:', err);
+                statusDiv.textContent = 'Microphone: Permission denied';
+                return false;
+            }
+        }
+
+        startButton.addEventListener('click', async () => {
+            if (!isActive) {
+                // Request microphone permission before starting
+                const hasPermission = await requestMicrophonePermission();
+                if (!hasPermission) {
+                    alert('Microphone permission is required for the voice agent to work.');
+                    return;
+                }
+
+                socket.emit('start_voice_agent');
+                startButton.textContent = 'Stop Voice Agent';
+                statusDiv.textContent = 'Microphone: Active';
+                isActive = true;
+            } else {
+                socket.emit('stop_voice_agent');
+                startButton.textContent = 'Start Voice Agent';
+                statusDiv.textContent = 'Microphone: Not active';
+                isActive = false;
+            }
+        });
+
+        socket.on('conversation_update', (data) => {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${data.role}`;
+            messageDiv.textContent = `${data.role}: ${data.content}`;
+            messages.appendChild(messageDiv);
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        socket.on('connect', () => {
+            console.log('Connected to server');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Disconnected from server');
+            isActive = false;
+            startButton.textContent = 'Start Voice Agent';
+            statusDiv.textContent = 'Microphone: Not active';
+        });
+
+        socket.on('error', (error) => {
+            console.error('Socket error:', error);
+            alert('An error occurred. Please check the console for details.');
+        });
+    </script>
+</body>
+</html>

@@ -1,3 +1,5 @@
+from flask import Flask, render_template
+from flask_socketio import SocketIO
 import pyaudio
 import asyncio
 import websockets
@@ -14,7 +16,7 @@ import logging
 
 class ColorFormatter(logging.Formatter):
     """Custom formatter to color-code log messages based on their content."""
-    
+
     # ANSI escape codes for colors - using accessible palette
     COLORS = {
         'RESET': '\033[0m',
@@ -24,40 +26,40 @@ class ColorFormatter(logging.Formatter):
         'VIOLET': '\033[38;5;183m',   # Function calls
         'YELLOW': '\033[38;5;186m',   # Latency info
     }
-    
+
     def format(self, record):
         # Default format string
         format_str = '%(asctime)s.%(msecs)03d %(levelname)s: %(message)s'
-        
+
         # Default to white
         color = self.COLORS['WHITE']
-        
+
         msg = str(record.msg).lower()
-        
+
         # Check for JSON content
         if "server:" in msg and "{" in msg:
             try:
                 # Extract the JSON part
                 json_str = msg[msg.find("{"):msg.rfind("}") + 1]
                 data = json.loads(json_str)
-                
+
                 # User/STT related messages
                 if (data.get("type") in ["userstartedspeaking", "endofthought"] or
                     (data.get("type") == "conversationtext" and data.get("role") == "user")):
                     color = self.COLORS['BLUE']
-                
+
                 # Agent speaking/TTS related messages
                 elif (data.get("type") in ["agentstartedspeaking", "agentaudiodone"] or
                       (data.get("type") == "conversationtext" and data.get("role") == "assistant")):
                     color = self.COLORS['GREEN']
-                
+
                 # Agent thinking/function calling
                 elif data.get("type") in ["functioncalling", "functioncallrequest"]:
                     color = self.COLORS['VIOLET']
-                
+
             except (json.JSONDecodeError, KeyError):
                 pass
-        
+
         # Non-JSON messages
         else:
             if any(phrase in msg for phrase in ["function response", "parameters", "function call"]):
@@ -66,7 +68,7 @@ class ColorFormatter(logging.Formatter):
                 color = self.COLORS['GREEN']
             elif any(phrase in msg for phrase in ["decision latency", "function execution latency"]):
                 color = self.COLORS['YELLOW']
-        
+
         # Apply the color to the format string
         formatter = logging.Formatter(color + format_str + self.COLORS['RESET'], datefmt='%H:%M:%S')
         return formatter.format(record)
@@ -141,7 +143,7 @@ EXAMPLES OF BAD RESPONSES (AVOID):
 ✗ "The system requires IDs to be in a specific format"
 
 FILLER PHRASES:
-IMPORTANT: Never generate filler phrases (like "Let me check that", "One moment", etc.) directly in your responses. 
+IMPORTANT: Never generate filler phrases (like "Let me check that", "One moment", etc.) directly in your responses.
 Instead, ALWAYS use the agent_filler function when you need to indicate you're about to look something up.
 
 Examples of what NOT to do:
@@ -197,244 +199,276 @@ SETTINGS = {
     }
 }
 
-mic_audio_queue = asyncio.Queue()
+class VoiceAgent:
+    def __init__(self):
+        self.mic_audio_queue = asyncio.Queue()
+        self.speaker = None
+        self.ws = None
+        self.is_running = False
+        self.loop = None
+        self.audio = None
+        self.stream = None
 
+    def set_loop(self, loop):
+        self.loop = loop
 
-def callback(input_data, frame_count, time_info, status_flag):
-    mic_audio_queue.put_nowait(input_data)
-    return (input_data, pyaudio.paContinue)
+    async def setup(self):
+        dg_api_key = os.environ.get("DEEPGRAM_API_KEY")
+        if dg_api_key is None:
+            logger.error("DEEPGRAM_API_KEY env var not present")
+            return False
 
+        # Format the prompt with the current date
+        current_date = datetime.now().strftime("%A, %B %d, %Y")
+        formatted_prompt = PROMPT_TEMPLATE.format(current_date=current_date)
 
-async def run():
-    dg_api_key = os.environ.get("DEEPGRAM_API_KEY")
-    if dg_api_key is None:
-        logger.error("DEEPGRAM_API_KEY env var not present")
-        return
+        # Update the settings with the formatted prompt
+        settings = SETTINGS.copy()
+        settings["agent"]["think"]["instructions"] = formatted_prompt
 
-    # Format the prompt with the current date
-    current_date = datetime.now().strftime("%A, %B %d, %Y")
-    formatted_prompt = PROMPT_TEMPLATE.format(current_date=current_date)
+        try:
+            self.ws = await websockets.connect(
+                VOICE_AGENT_URL,
+                extra_headers={"Authorization": f"Token {dg_api_key}"},
+            )
+            await self.ws.send(json.dumps(settings))
+            return True
+        except Exception as e:
+            logger.error(f"Failed to connect to Deepgram: {e}")
+            return False
 
-    # Update the settings with the formatted prompt
-    settings = SETTINGS.copy()
-    settings["agent"]["think"]["instructions"] = formatted_prompt
+    def audio_callback(self, input_data, frame_count, time_info, status_flag):
+        if self.is_running and self.loop and not self.loop.is_closed():
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    self.mic_audio_queue.put(input_data),
+                    self.loop
+                )
+                future.result(timeout=1)  # Add timeout to prevent blocking
+            except Exception as e:
+                logger.error(f"Error in audio callback: {e}")
+        return (input_data, pyaudio.paContinue)
 
-    async with websockets.connect(
-        VOICE_AGENT_URL,
-        extra_headers={"Authorization": f"Token {dg_api_key}"},
-    ) as ws:
+    async def start_microphone(self):
+        try:
+            self.audio = pyaudio.PyAudio()
 
-        async def microphone():
-            audio = pyaudio.PyAudio()
-            stream = audio.open(
+            # List available input devices
+            info = self.audio.get_host_api_info_by_index(0)
+            numdevices = info.get('deviceCount')
+            input_device_index = None
+
+            for i in range(0, numdevices):
+                device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
+                if device_info.get('maxInputChannels') > 0:
+                    logger.info(f"Input Device {i}: {device_info.get('name')}")
+                    input_device_index = i
+                    break
+
+            if input_device_index is None:
+                raise Exception("No input device found")
+
+            self.stream = self.audio.open(
                 format=pyaudio.paInt16,
                 channels=1,
                 rate=USER_AUDIO_SAMPLE_RATE,
                 input=True,
+                input_device_index=input_device_index,
                 frames_per_buffer=USER_AUDIO_SAMPLES_PER_CHUNK,
-                stream_callback=callback,
+                stream_callback=self.audio_callback,
             )
+            self.stream.start_stream()
+            logger.info("Microphone started successfully")
+            return self.stream, self.audio
+        except Exception as e:
+            logger.error(f"Error starting microphone: {e}")
+            if self.audio:
+                self.audio.terminate()
+            raise
 
-            stream.start_stream()
-
-            while stream.is_active():
-                await asyncio.sleep(0.1)
-
-            stream.stop_stream()
-            stream.close()
-
-        async def sender(ws):
-            await ws.send(json.dumps(settings))
-
+    def cleanup(self):
+        """Clean up audio resources"""
+        if self.stream:
             try:
-                while True:
-                    data = await mic_audio_queue.get()
-                    await ws.send(data)
-
+                self.stream.stop_stream()
+                self.stream.close()
             except Exception as e:
-                logger.error("Error while sending: " + str(e))
-                raise
+                logger.error(f"Error closing audio stream: {e}")
 
-        async def receiver(ws):
+        if self.audio:
             try:
-                speaker = Speaker()
-                last_user_message = None
-                last_function_response_time = None
-                in_function_chain = False  # Flag to track if we're in a chain of function calls
-                
-                with speaker:
-                    async for message in ws:
-                        # Print raw message for debugging, but only if it's not binary audio data
-                        if isinstance(message, str):
-                            logger.info(f"Server: {message}")                     
-                        
-                        if isinstance(message, str):
-                            message_json = json.loads(message)
-                            message_type = message_json.get("type")
-                            current_time = time.time()
-                            
-                            if message_type == "UserStartedSpeaking":
-                                speaker.stop()
-                                continue
-                            # Track when user speaks
-                            if message_type == "ConversationText" and message_json.get("role") == "user":
+                self.audio.terminate()
+            except Exception as e:
+                logger.error(f"Error terminating audio: {e}")
+
+    async def sender(self):
+        try:
+            while self.is_running:
+                data = await self.mic_audio_queue.get()
+                if self.ws and data:
+                    await self.ws.send(data)
+        except Exception as e:
+            logger.error(f"Error in sender: {e}")
+
+    async def receiver(self):
+        try:
+            self.speaker = Speaker()
+            last_user_message = None
+            last_function_response_time = None
+            in_function_chain = False
+
+            with self.speaker:
+                async for message in self.ws:
+                    if isinstance(message, str):
+                        logger.info(f"Server: {message}")
+                        message_json = json.loads(message)
+                        message_type = message_json.get("type")
+                        current_time = time.time()
+
+                        if message_type == "UserStartedSpeaking":
+                            self.speaker.stop()
+                        elif message_type == "ConversationText":
+                            # Emit the conversation text to the client
+                            socketio.emit('conversation_update', message_json)
+
+                            if message_json.get("role") == "user":
                                 last_user_message = current_time
-                                in_function_chain = False  # Reset chain flag when user speaks
-                            
-                            # Track when assistant speaks to reset chain flag
-                            elif message_type == "ConversationText" and message_json.get("role") == "assistant":
-                                in_function_chain = False  # Reset chain flag when assistant speaks to user
-                            
-                            elif message_type == "FunctionCalling":
-                                # Determine which timestamp to use for latency calculation
-                                if in_function_chain and last_function_response_time:
-                                    # If we're in a chain, measure from last function response
-                                    latency = current_time - last_function_response_time
-                                    logger.info(f"LLM Decision Latency (chain): {latency:.3f}s")
-                                elif last_user_message:
-                                    # If it's the first function call, measure from last user message
-                                    latency = current_time - last_user_message
-                                    logger.info(f"LLM Decision Latency (initial): {latency:.3f}s")
-                                    in_function_chain = True  # Start a chain
-                            
-                            elif message_type == "FunctionCallRequest":
-                                function_name = message_json.get("function_name")
-                                function_call_id = message_json.get("function_call_id")
-                                parameters = message_json.get("input", {})
-                                
-                                logger.info(f"Function call received: {function_name}")
-                                logger.info(f"Parameters: {parameters}")
-                                
-                                start_time = time.time()
-                                try:
-                                    func = FUNCTION_MAP.get(function_name)
-                                    if not func:
-                                        raise ValueError(f"Function {function_name} not found")
-                                    
-                                    # Special handling for functions that need websocket
-                                    if function_name in ["agent_filler", "end_call"]:
-                                        result = await func(ws, parameters)
-                                        
-                                        if function_name == "agent_filler":
-                                            # Extract messages
-                                            inject_message = result["inject_message"]
-                                            function_response = result["function_response"]
-                                            
-                                            # First send the function response
-                                            response = {
-                                                "type": "FunctionCallResponse",
-                                                "function_call_id": function_call_id,
-                                                "output": json.dumps(function_response)
-                                            }
-                                            await ws.send(json.dumps(response))
-                                            logger.info(f"Function response sent: {json.dumps(function_response)}")
-                                            
-                                            # Update the last function response time
-                                            last_function_response_time = time.time()
-                                            # Then just inject the message and continue
-                                            await inject_agent_message(ws, inject_message)
-                                            continue
-                                            
-                                        elif function_name == "end_call":
-                                            # Extract messages
-                                            inject_message = result["inject_message"]
-                                            function_response = result["function_response"]
-                                            close_message = result["close_message"]
-                                            
-                                            # First send the function response
-                                            response = {
-                                                "type": "FunctionCallResponse",
-                                                "function_call_id": function_call_id,
-                                                "output": json.dumps(function_response)
-                                            }
-                                            await ws.send(json.dumps(response))
-                                            logger.info(f"Function response sent: {json.dumps(function_response)}")
-                                            
-                                            # Update the last function response time
-                                            last_function_response_time = time.time()
-                                            
-                                            # Then wait for farewell sequence to complete
-                                            await wait_for_farewell_completion(ws, speaker, inject_message)
-                                            
-                                            # Finally send the close message and exit
-                                            logger.info(f"Sending ws close message")
-                                            await close_websocket_with_timeout(ws)
-                                            os._exit(0)  # Clean exit without traceback
-                                    else:
-                                        result = await func(parameters)
-        
-                                except Exception as e:
-                                    logger.error(f"Error executing function: {str(e)}")
-                                    result = {"error": str(e)}
-                                
+                                in_function_chain = False
+                            elif message_json.get("role") == "assistant":
+                                in_function_chain = False
+
+                        elif message_type == "FunctionCalling":
+                            if in_function_chain and last_function_response_time:
+                                latency = current_time - last_function_response_time
+                                logger.info(f"LLM Decision Latency (chain): {latency:.3f}s")
+                            elif last_user_message:
+                                latency = current_time - last_user_message
+                                logger.info(f"LLM Decision Latency (initial): {latency:.3f}s")
+                                in_function_chain = True
+
+                        elif message_type == "FunctionCallRequest":
+                            function_name = message_json.get("function_name")
+                            function_call_id = message_json.get("function_call_id")
+                            parameters = message_json.get("input", {})
+
+                            logger.info(f"Function call received: {function_name}")
+                            logger.info(f"Parameters: {parameters}")
+
+                            start_time = time.time()
+                            try:
+                                func = FUNCTION_MAP.get(function_name)
+                                if not func:
+                                    raise ValueError(f"Function {function_name} not found")
+
+                                # Special handling for functions that need websocket
+                                if function_name in ["agent_filler", "end_call"]:
+                                    result = await func(self.ws, parameters)
+
+                                    if function_name == "agent_filler":
+                                        # Extract messages
+                                        inject_message = result["inject_message"]
+                                        function_response = result["function_response"]
+
+                                        # First send the function response
+                                        response = {
+                                            "type": "FunctionCallResponse",
+                                            "function_call_id": function_call_id,
+                                            "output": json.dumps(function_response)
+                                        }
+                                        await self.ws.send(json.dumps(response))
+                                        logger.info(f"Function response sent: {json.dumps(function_response)}")
+
+                                        # Update the last function response time
+                                        last_function_response_time = time.time()
+                                        # Then just inject the message and continue
+                                        await inject_agent_message(self.ws, inject_message)
+                                        continue
+
+                                    elif function_name == "end_call":
+                                        # Extract messages
+                                        inject_message = result["inject_message"]
+                                        function_response = result["function_response"]
+                                        close_message = result["close_message"]
+
+                                        # First send the function response
+                                        response = {
+                                            "type": "FunctionCallResponse",
+                                            "function_call_id": function_call_id,
+                                            "output": json.dumps(function_response)
+                                        }
+                                        await self.ws.send(json.dumps(response))
+                                        logger.info(f"Function response sent: {json.dumps(function_response)}")
+
+                                        # Update the last function response time
+                                        last_function_response_time = time.time()
+
+                                        # Then wait for farewell sequence to complete
+                                        await wait_for_farewell_completion(self.ws, self.speaker, inject_message)
+
+                                        # Finally send the close message and exit
+                                        logger.info(f"Sending ws close message")
+                                        await close_websocket_with_timeout(self.ws)
+                                        self.is_running = False
+                                        break
+                                else:
+                                    result = await func(parameters)
+
                                 execution_time = time.time() - start_time
                                 logger.info(f"Function Execution Latency: {execution_time:.3f}s")
-        
-                                # Send the response back with stringified output (for non-agent_filler functions)
+
+                                # Send the response back
                                 response = {
                                     "type": "FunctionCallResponse",
                                     "function_call_id": function_call_id,
                                     "output": json.dumps(result)
                                 }
-                                await ws.send(json.dumps(response))
+                                await self.ws.send(json.dumps(response))
                                 logger.info(f"Function response sent: {json.dumps(result)}")
-                                
+
                                 # Update the last function response time
                                 last_function_response_time = time.time()
-        
-                            # Handle different message types
-                            message_type = message_json.get("type")
-                            
-                            if message_type == "Welcome":
-                                logger.info(f"Connected with session ID: {message_json.get('session_id')}")
-                                continue
-                            
-                            elif message_type == "CloseConnection":
-                                logger.info("Closing connection...")
-                                await ws.close()
-                                return  # Exit the function to end the script
-        
-                        elif isinstance(message, bytes):
-                            await speaker.play(message)
-        
-            except Exception as e:
-                logger.error(f"Receiver encountered an error: {e}")
-                import traceback
-                traceback.print_exc()
 
-        await asyncio.wait(
-            [
-                asyncio.ensure_future(microphone()),
-                asyncio.ensure_future(sender(ws)),
-                asyncio.ensure_future(receiver(ws)),
-            ]
-        )
+                            except Exception as e:
+                                logger.error(f"Error executing function: {str(e)}")
+                                result = {"error": str(e)}
+                                response = {
+                                    "type": "FunctionCallResponse",
+                                    "function_call_id": function_call_id,
+                                    "output": json.dumps(result)
+                                }
+                                await self.ws.send(json.dumps(response))
 
+                        elif message_type == "Welcome":
+                            logger.info(f"Connected with session ID: {message_json.get('session_id')}")
+                        elif message_type == "CloseConnection":
+                            logger.info("Closing connection...")
+                            await self.ws.close()
+                            break
 
-def main():
-    asyncio.get_event_loop().run_until_complete(run())
+                    elif isinstance(message, bytes):
+                        await self.speaker.play(message)
 
+        except Exception as e:
+            logger.error(f"Error in receiver: {e}")
 
-def _play(audio_out, stream, stop):
-    while not stop.is_set():
+    async def run(self):
+        if not await self.setup():
+            return
+
+        self.is_running = True
         try:
-            # Janus sync queue mimics the API of queue.Queue, and async queue mimics the API of
-            # asyncio.Queue. So for this line check these docs:
-            # https://docs.python.org/3/library/queue.html#queue.Queue.get.
-            #
-            # The timeout of 0.05 is to prevent this line from going into an uninterruptible wait,
-            # which can interfere with shutting down the program on some systems.
-            data = audio_out.sync_q.get(True, 0.05)
-
-            # In PyAudio's "blocking mode," the `write` function will block until playback is
-            # finished. This is why we can stop playback very quickly by simply stopping this loop;
-            # there is never more than 1 chunk of audio awaiting playback inside PyAudio.
-            # Read more: https://people.csail.mit.edu/hubert/pyaudio/docs/#example-blocking-mode-audio-i-o
-            stream.write(data)
-
-        except queue.Empty:
-            pass
-
+            stream, audio = await self.start_microphone()
+            await asyncio.gather(
+                self.sender(),
+                self.receiver(),
+            )
+        except Exception as e:
+            logger.error(f"Error in run: {e}")
+        finally:
+            self.is_running = False
+            self.cleanup()
+            if self.ws:
+                await self.ws.close()
 
 class Speaker:
     def __init__(self):
@@ -479,6 +513,13 @@ class Speaker:
                 except janus.QueueEmpty:
                     break
 
+def _play(audio_out, stream, stop):
+    while not stop.is_set():
+        try:
+            data = audio_out.sync_q.get(True, 0.05)
+            stream.write(data)
+        except queue.Empty:
+            pass
 
 async def inject_agent_message(ws, inject_message):
     """Simple helper to inject an agent message."""
@@ -496,7 +537,7 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
     """Wait for the farewell message to be spoken completely by the agent."""
     # Send the farewell message
     await inject_agent_message(ws, inject_message)
-    
+
     # First wait for either AgentStartedSpeaking or matching ConversationText
     speaking_started = False
     while not speaking_started:
@@ -504,18 +545,18 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
         if isinstance(message, bytes):
             await speaker.play(message)
             continue
-            
+
         try:
             message_json = json.loads(message)
             logger.info(f"Server: {message}")
-            if (message_json.get("type") == "AgentStartedSpeaking" or 
-                (message_json.get("type") == "ConversationText" and 
-                 message_json.get("role") == "assistant" and 
+            if (message_json.get("type") == "AgentStartedSpeaking" or
+                (message_json.get("type") == "ConversationText" and
+                 message_json.get("role") == "assistant" and
                  message_json.get("content") == inject_message["message"])):
                 speaking_started = True
         except json.JSONDecodeError:
             continue
-    
+
     # Then wait for AgentAudioDone
     audio_done = False
     while not audio_done:
@@ -523,7 +564,7 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
         if isinstance(message, bytes):
             await speaker.play(message)
             continue
-            
+
         try:
             message_json = json.loads(message)
             logger.info(f"Server: {message}")
@@ -531,10 +572,76 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
                 audio_done = True
         except json.JSONDecodeError:
             continue
-            
+
     # Give audio time to play completely
     await asyncio.sleep(3.5)
 
+# Configure Flask and SocketIO
+app = Flask(__name__, static_folder="./static", static_url_path="/")
+socketio = SocketIO(app)
+
+# Flask routes
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+voice_agent = None
+
+def run_async_voice_agent():
+    try:
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Set the loop in the voice agent
+        voice_agent.set_loop(loop)
+
+        try:
+            # Run the voice agent
+            loop.run_until_complete(voice_agent.run())
+        except asyncio.CancelledError:
+            logger.info("Voice agent task was cancelled")
+        except Exception as e:
+            logger.error(f"Error in voice agent thread: {e}")
+        finally:
+            # Clean up the loop
+            try:
+                # Cancel all running tasks
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+
+                # Allow cancelled tasks to complete
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            finally:
+                loop.close()
+    except Exception as e:
+        logger.error(f"Error in voice agent thread setup: {e}")
+
+@socketio.on('start_voice_agent')
+def handle_start_voice_agent():
+    global voice_agent
+    if voice_agent is None:
+        voice_agent = VoiceAgent()
+        # Start the voice agent in a background thread
+        socketio.start_background_task(target=run_async_voice_agent)
+
+@socketio.on('stop_voice_agent')
+def handle_stop_voice_agent():
+    global voice_agent
+    if voice_agent:
+        voice_agent.is_running = False
+        if voice_agent.loop and not voice_agent.loop.is_closed():
+            try:
+                # Cancel all running tasks
+                for task in asyncio.all_tasks(voice_agent.loop):
+                    task.cancel()
+            except Exception as e:
+                logger.error(f"Error stopping voice agent: {e}")
+        voice_agent = None
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    socketio.run(app, debug=True)
