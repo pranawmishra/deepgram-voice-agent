@@ -1,79 +1,113 @@
-> Copy the entire contents of https://github.com/deepgram-starters/deepgram-starters-ui to the `./static/` folder.
+# Voice Agent Function Calling Python Flask Starter
 
-> The name of the project and repo, is less important than the correct configuration of the `deepgram.toml` file, if you wish for it to be included in future onboarding workflows.
-
-# [Usecase] [Language] Starter
-
-> Write an intro for this project
-
-Nifty little into, maybe a screenshot.
+This repository serves as a reference implementation for integrating function calling capabilities with Deepgram's Voice Agent API. It demonstrates production-ready patterns for building AI Voice Agent applications with clientside function calling.
 
 ## Sign-up to Deepgram
-
-> Please leave this section unchanged, unless providing a UTM on the URL.
 
 Before you start, it's essential to generate a Deepgram API key to use in this project. [Sign-up now for Deepgram](https://console.deepgram.com/signup).
 
 ## Quickstart
 
-> Detail the manual steps to get started.
+This reference implementation demonstrates:
 
-e.g.
+- Core function calling patterns with Voice Agent API
+- Natural conversation flow using agent filler messages
+- Customer information lookup and verification
+- Order history retrieval
+- Appointment scheduling and management
+- Graceful conversation termination through an `end_call` function
 
-### Manual
+### Function Calling Architecture
+The implementation uses a three-layer architecture:
+- Function definitions that guide the LLM's behavior
+- Function handlers that route requests
+- Business logic that executes the actual functionality
 
-Follow these steps to get started with this starter application.
+### Natural Conversation Flow
+Shows how to implement natural dialogue patterns:
+- Agent filler messages for lookup operations
+- Proper message sequencing
+- Audio completion handling
+- Clean session termination
 
-#### Clone the repository
+## Project Structure
 
-Go to GitHub and [clone the repository](https://github.com/deepgram-starters/prerecorded-node-starter).
+```
+├── business_logic.py     # Core function implementations
+├── client.py             # WebSocket client and message handling
+├── config.py             # Configuration settings
+├── functions.py          # Function definitions and routing
+```
 
-#### Install dependencies
+## Mock Data System
 
-Install the project dependencies.
+The implementation uses a mock data system for demonstration:
+- Generates realistic customer, order, and appointment data
+- Saves data to timestamped JSON files in `mock_data_outputs/`
+- Configurable through `config.py`
+
+### Artificial Delays
+The implementation demonstrates how to handle real-world latency:
+- Configurable database operation delays in `config.py`
+- Helps simulate production environment timing
+
+## Setup Instructions
+
+`pipenv`  can be used to manage virtual env. and packages in one easy to use tool. instead of running pip commands, you just use [pipenv](https://pypi.org/project/pipenv/).
+
+1. Install pipenv if not already installed.
 
 ```bash
-npm install
+pip install pipenv
 ```
 
-#### Edit the config file
-
-> Config file can be any appropriate file for the framework/language. For e.g.
-> Node is using a config.json file, while Python is only use .env files
-
-Copy the code from `sample.env` and create a new file called `.env`. Paste in the code and enter your API key you generated in the [Deepgram console](https://console.deepgram.com/).
-
-```json
-DEEPGRAM_API_KEY=%api_key%
+2. Switch to a pipenv virtual env.
+```bash
+pipenv shell
 ```
 
-#### Run the application
+3. Install the project dependencies:
 
-> to support the UI, it must always run on port 8080
-
-The `dev` script will run a web and API server concurrently. Once running, you can [access the application in your browser](http://localhost:8080/).
+In the root directory of the project, run the following command to install the dependencies:
 
 ```bash
-npm start
+pipenv install -r requirements.txt
 ```
 
-## What is Deepgram?
+3. Set your Deepgram API key:
+```bash
+export DEEPGRAM_API_KEY=<your-key-here>
+```
 
-Deepgram is an AI speech platform which specializes in (NLU) Natural Language Understanding features and Transcription. It can help get the following from your audio.
+## Application Usage
 
-- [Speaker diarization](https://deepgram.com/product/speech-understanding/)
-- [Language detection](https://deepgram.com/product/speech-understanding/)
-- [Summarization](https://deepgram.com/product/speech-understanding/)
-- [Topic detection](https://deepgram.com/product/speech-understanding/)
-- [Language translation](https://deepgram.com/product/speech-understanding/)
-- [Sentiment analysis](https://deepgram.com/product/speech-understanding/)
-- [Entity detection](https://deepgram.com/product/speech-understanding/)
-- [Transcription](https://deepgram.com/product/transcription/)
-- [Redaction](https://deepgram.com/product/transcription/)
+1. Run the client:
+   ```bash
+   python client.py
+   ```
 
-## Create a Free Deepgram Account
+> The application will be available at http://localhost:5000
 
-Before you start, it's essential to generate a Deepgram API key to use in our starter applications. [Sign-up now for Deepgram](https://console.deepgram.com/signup).
+2. Use headphones to prevent audio feedback (the agent hearing itself).
+
+## Example Interactions
+
+The voice agent handles natural conversations like:
+
+```
+User: "I need to check my order status"
+Agent: "Let me look that up for you..."
+[Agent executes customer lookup]
+Agent: "I can see you have two recent orders. Your most recent
+       order from last week is currently being shipped..."
+```
+
+## Configuration
+
+Key settings in `config.py`:
+- `ARTIFICIAL_DELAY`: Configurable delays for database operations
+- `MOCK_DATA_SIZE`: Control size of generated test data
+
 
 ## Issue Reporting
 
