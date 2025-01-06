@@ -1,6 +1,6 @@
-# Voice Agent Function Calling Python Flask Starter
+# Voice Agent Function Calling Python Demo
 
-This repository serves as a reference implementation for integrating function calling capabilities with Deepgram's Voice Agent API. It demonstrates production-ready patterns for building AI Voice Agent applications with clientside function calling.
+This repository serves as a reference implementation for integrating function calling capabilities with Deepgram's Voice Agent API using Python Flask. It demonstrates production-ready patterns for building AI Voice Agent applications with clientside function calling.
 
 ## Sign-up to Deepgram
 
@@ -11,6 +11,7 @@ Before you start, it's essential to generate a Deepgram API key to use in this p
 This reference implementation demonstrates:
 
 - Core function calling patterns with Voice Agent API
+- Using Python Flask to build a simple web application
 - Natural conversation flow using agent filler messages
 - Customer information lookup and verification
 - Order history retrieval
