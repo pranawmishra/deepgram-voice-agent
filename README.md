@@ -92,7 +92,7 @@ export DEEPGRAM_API_KEY=<your-key-here>
 
 1. Run the client:
    ```bash
-   python client.py
+   poetry run python client.py
    ```
 
 > The application will be available at http://localhost:5000
