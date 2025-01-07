@@ -17,6 +17,7 @@ This reference implementation demonstrates:
 - Order history retrieval
 - Appointment scheduling and management
 - Graceful conversation termination through an `end_call` function
+- Logging in the UI for debugging
 
 ### Function Calling Architecture
 The implementation uses a three-layer architecture:
@@ -54,25 +55,32 @@ The implementation demonstrates how to handle real-world latency:
 
 ## Setup Instructions
 
-`pipenv`  can be used to manage virtual env. and packages in one easy to use tool. instead of running pip commands, you just use [pipenv](https://pypi.org/project/pipenv/).
+0. Make sure you have portaudio installed.
 
-1. Install pipenv if not already installed.
-
+In macOS:
 ```bash
-pip install pipenv
+brew install portaudio:
 ```
 
-2. Switch to a pipenv virtual env.
+In Ubuntu:
 ```bash
-pipenv shell
+sudo apt-get install portaudio19-dev
 ```
 
-3. Install the project dependencies:
+`poetry`  can be used to manage virtual env. and packages in one easy to use tool
+
+1. Install poetry if not already installed.
+
+```bash
+pip install poetry
+```
+
+2. Install the project dependencies:
 
 In the root directory of the project, run the following command to install the dependencies:
 
 ```bash
-pipenv install -r requirements.txt
+poetry install
 ```
 
 3. Set your Deepgram API key:
