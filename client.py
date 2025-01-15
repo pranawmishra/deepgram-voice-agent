@@ -13,6 +13,8 @@ import time
 from datetime import datetime
 from functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
 import logging
+from business_logic import MOCK_DATA
+
 
 class ColorFormatter(logging.Formatter):
     """Custom formatter to color-code log messages based on their content."""
@@ -70,8 +72,22 @@ class ColorFormatter(logging.Formatter):
                 color = self.COLORS['YELLOW']
 
         # Apply the color to the format string
-        formatter = logging.Formatter(color + format_str + self.COLORS['RESET'], datefmt='%H:%M:%S')
-        return formatter.format(record)
+        formatter = logging.Formatter(
+            color + format_str + self.COLORS["RESET"], datefmt="%H:%M:%S"
+        )
+        formatted_message = formatter.format(record)
+
+        # Emit the log message to the client with timestamp
+        try:
+            socketio.emit(
+                "log_message",
+                {"message": formatted_message, "timestamp": datetime.now().isoformat()},
+            )
+        except Exception as e:
+            print(f"Error emitting log message: {e}")
+
+        return formatted_message
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -583,7 +599,10 @@ socketio = SocketIO(app)
 # Flask routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    # Get the sample data from MOCK_DATA
+    sample_data = MOCK_DATA.get("sample_data", [])
+    return render_template("index.html", sample_data=sample_data)
+
 
 voice_agent = None
 

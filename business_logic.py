@@ -76,7 +76,46 @@ def generate_mock_data():
             "status": random.choice(["Pending", "Shipped", "Delivered", "Cancelled"])
         }
         orders.append(order)
-    
+
+    # Format sample data for display
+    sample_data = []
+    sample_customers = random.sample(customers, 3)
+    for customer in sample_customers:
+        customer_data = {
+            "Customer": customer["name"],
+            "ID": customer["id"],
+            "Phone": customer["phone"],
+            "Email": customer["email"],
+            "Appointments": [],
+            "Orders": [],
+        }
+
+        # Add appointments
+        customer_appointments = [
+            a for a in appointments if a["customer_id"] == customer["id"]
+        ]
+        for apt in customer_appointments[:2]:
+            customer_data["Appointments"].append(
+                {
+                    "Service": apt["service"],
+                    "Date": apt["date"][:10],
+                    "Status": apt["status"],
+                }
+            )
+
+        # Add orders
+        customer_orders = [o for o in orders if o["customer_id"] == customer["id"]]
+        for order in customer_orders[:2]:
+            customer_data["Orders"].append(
+                {
+                    "ID": order["id"],
+                    "Total": f"${order['total']}",
+                    "Status": order["status"],
+                }
+            )
+
+        sample_data.append(customer_data)
+
     # Create data object
     mock_data = {
         "customers": customers,

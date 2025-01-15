@@ -7,23 +7,75 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="content">
-        <div class="button-container">
+    <div class="main-container">
+        <div class="sidebar">
             <button id="startButton" class="mic-button">Start Voice Agent</button>
             <div id="status" class="status">Microphone: Not active</div>
+            <div class="controls">
+                <label class="toggle">
+                    <input type="checkbox" id="showLogs">
+                    <span class="toggle-label">Show Logs</span>
+                </label>
+                <label class="toggle">
+                    <input type="checkbox" id="darkMode" checked>
+                    <span class="toggle-label">Dark Mode</span>
+                </label>
+            </div>
+            <div class="sample-data">
+                <h3>Sample Customer Data</h3>
+                <div class="sample-data-content">
+                    {% for customer in sample_data %}
+                    <div class="customer-card">
+                        <div class="customer-info">
+                            <div><strong>{{ customer.Customer }}</strong></div>
+                            <div>ID: {{ customer.ID }}</div>
+                            <div>Phone: {{ customer.Phone }}</div>
+                            <div>Email: {{ customer.Email }}</div>
+                        </div>
+                        {% if customer.Appointments %}
+                        <div class="customer-appointments">
+                            <strong>Appointments:</strong>
+                            {% for apt in customer.Appointments %}
+                            <div>{{ apt.Service }} - {{ apt.Date }} ({{ apt.Status }})</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        {% if customer.Orders %}
+                        <div class="customer-orders">
+                            <strong>Orders:</strong>
+                            {% for order in customer.Orders %}
+                            <div>{{ order.ID }}: {{ order.Total }} ({{ order.Status }})</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
-    </div>
-    <div id="conversation" class="conversation">
-        <h2>Conversation</h2>
-        <div id="messages"></div>
+        <div class="columns-container">
+            <div id="conversation" class="timeline column">
+                <h2>Conversation</h2>
+                <div id="conversationMessages"></div>
+            </div>
+            <div id="logs" class="timeline column">
+                <h2>Logs</h2>
+                <div id="logMessages"></div>
+            </div>
+        </div>
     </div>
 
     <script>
         const socket = io();
         const startButton = document.getElementById('startButton');
-        const messages = document.getElementById('messages');
+        const conversationMessages = document.getElementById('conversationMessages');
+        const logMessages = document.getElementById('logMessages');
         const statusDiv = document.getElementById('status');
+        const showLogsToggle = document.getElementById('showLogs');
+        const logsColumn = document.getElementById('logs');
         let isActive = false;
+        let currentGroup = null;
+        let lastMessageTimestamp = null;
 
         async function requestMicrophonePermission() {
             try {
@@ -59,13 +111,155 @@
             }
         });
 
-        socket.on('conversation_update', (data) => {
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${data.role}`;
-            messageDiv.textContent = `${data.role}: ${data.content}`;
-            messages.appendChild(messageDiv);
-            messages.scrollTop = messages.scrollHeight;
+        function createSpacer(height) {
+            const spacer = document.createElement('div');
+            spacer.className = 'timeline-spacer';
+            spacer.style.height = `${height}px`;
+            return spacer;
+        }
+
+        // Update scroll synchronization
+        function syncScroll(source, target) {
+            const scrollRatio = source.scrollTop / (source.scrollHeight - source.clientHeight);
+            const targetScrollTop = scrollRatio * (target.scrollHeight - target.clientHeight);
+            target.scrollTop = targetScrollTop;
+        }
+
+        conversationMessages.addEventListener('scroll', () => {
+            if (showLogsToggle.checked) {
+                syncScroll(conversationMessages, logMessages);
+            }
         });
+
+        logMessages.addEventListener('scroll', () => {
+            if (showLogsToggle.checked) {
+                syncScroll(logMessages, conversationMessages);
+            }
+        });
+
+        socket.on('conversation_update', (data) => {
+            const timestamp = data.timestamp || new Date().toISOString();
+            
+            // Create message for conversation column
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `timeline-item message ${data.role}`;
+            messageDiv.textContent = `${data.role}: ${data.content}`;
+            
+            // Insert message first so we can get its actual height
+            insertTimelineItem(messageDiv, timestamp, conversationMessages);
+            
+            // Now create spacer with actual height
+            const spacerHeight = messageDiv.offsetHeight;
+            const logSpacer = createSpacer(spacerHeight);
+            insertTimelineItem(logSpacer, timestamp, logMessages);
+            
+            // Hide spacer if logs are not visible
+            if (!showLogsToggle.checked) {
+                logSpacer.style.display = 'none';
+                logSpacer.style.height = '0';
+            }
+        });
+
+        socket.on('log_message', (data) => {
+            const logDiv = document.createElement('div');
+            logDiv.className = 'timeline-item log-message';
+            logDiv.setAttribute('data-original-text', data.message);  // Store original text
+            logDiv.innerHTML = convertAnsiToHtml(data.message);
+            
+            // Insert log first so we can get its actual height
+            insertTimelineItem(logDiv, data.timestamp, logMessages);
+            
+            // Now create spacer with actual height
+            const spacerHeight = logDiv.offsetHeight;
+            const conversationSpacer = createSpacer(spacerHeight);
+            insertTimelineItem(conversationSpacer, data.timestamp, conversationMessages);
+            
+            // Hide spacer if logs are not visible
+            if (!showLogsToggle.checked) {
+                conversationSpacer.style.display = 'none';
+                conversationSpacer.style.height = '0';
+            }
+        });
+
+        function insertTimelineItem(element, timestamp, container) {
+            const time = new Date(timestamp);
+            
+            // Find the correct position to insert the new element
+            const items = container.children;
+            let insertPosition = container.childNodes.length;
+            
+            for (let i = 0; i < items.length; i++) {
+                const itemTime = new Date(items[i].dataset.timestamp);
+                if (time < itemTime) {
+                    insertPosition = i;
+                    break;
+                }
+            }
+            
+            element.dataset.timestamp = timestamp;
+            
+            if (insertPosition === container.childNodes.length) {
+                container.appendChild(element);
+            } else {
+                container.insertBefore(element, items[insertPosition]);
+            }
+            
+            // Use requestAnimationFrame to ensure DOM updates are complete
+            requestAnimationFrame(() => {
+                const scrollPosition = container.scrollHeight - container.clientHeight;
+                if (container === conversationMessages) {
+                    conversationMessages.scrollTop = scrollPosition;
+                    if (showLogsToggle.checked) {
+                        syncScroll(conversationMessages, logMessages);
+                    }
+                } else {
+                    logMessages.scrollTop = scrollPosition;
+                    if (showLogsToggle.checked) {
+                        syncScroll(logMessages, conversationMessages);
+                    }
+                }
+            });
+        }
+
+        function convertAnsiToHtml(text) {
+            const ansiToHtml = {
+                // Dark mode colors
+                dark: {
+                    '[38;5;231m': 'color: #fff;',     // WHITE
+                    '[38;5;116m': 'color: #87d7d7;',  // BLUE
+                    '[38;5;114m': 'color: #87d787;',  // GREEN
+                    '[38;5;183m': 'color: #d7afff;',  // VIOLET
+                    '[38;5;186m': 'color: #d7d787;',  // YELLOW
+                },
+                // Light mode colors (darker variants)
+                light: {
+                    '[38;5;231m': 'color: #000;',     // BLACK
+                    '[38;5;116m': 'color: #0086b3;',  // BLUE
+                    '[38;5;114m': 'color: #008744;',  // GREEN
+                    '[38;5;183m': 'color: #8b3d90;',  // VIOLET
+                    '[38;5;186m': 'color: #b36d00;',  // YELLOW
+                },
+                // Reset is the same for both
+                '[0m': ''
+            };
+
+            // First remove all reset codes from the text
+            let html = text.replace(/\[0m/g, '');
+            const isDarkMode = document.body.classList.contains('dark-mode');
+            const colorSet = isDarkMode ? ansiToHtml.dark : ansiToHtml.light;
+
+            for (const [ansi, style] of Object.entries(colorSet)) {
+                const parts = html.split(ansi);
+                if (parts.length > 1) {
+                    html = parts.map((part, i) => {
+                        if (i === 0) return part;
+                        return `<span style="${style}">${part}</span>`;
+                    }).join('');
+                }
+            }
+
+            return html;
+        }
 
         socket.on('connect', () => {
             console.log('Connected to server');
@@ -81,6 +275,81 @@
         socket.on('error', (error) => {
             console.error('Socket error:', error);
             alert('An error occurred. Please check the console for details.');
+        });
+
+        showLogsToggle.addEventListener('change', () => {
+            logsColumn.style.display = showLogsToggle.checked ? 'flex' : 'none';
+            
+            // Get all spacers
+            const allSpacers = document.querySelectorAll('.timeline-spacer');
+            
+            if (showLogsToggle.checked) {
+                // Show logs - recalculate all spacer heights
+                const logItems = document.querySelectorAll('.timeline-item.log-message');
+                logItems.forEach(logItem => {
+                    const timestamp = logItem.dataset.timestamp;
+                    const spacer = conversationMessages.querySelector(`.timeline-spacer[data-timestamp="${timestamp}"]`);
+                    if (spacer) {
+                        requestAnimationFrame(() => {
+                            spacer.style.display = 'block';
+                            spacer.style.height = `${logItem.offsetHeight}px`;
+                        });
+                    }
+                });
+
+                const messageItems = conversationMessages.querySelectorAll('.timeline-item.message');
+                messageItems.forEach(messageItem => {
+                    const timestamp = messageItem.dataset.timestamp;
+                    const spacer = logMessages.querySelector(`.timeline-spacer[data-timestamp="${timestamp}"]`);
+                    if (spacer) {
+                        requestAnimationFrame(() => {
+                            spacer.style.display = 'block';
+                            spacer.style.height = `${messageItem.offsetHeight}px`;
+                        });
+                    }
+                });
+            } else {
+                // Hide logs - collapse all spacers
+                allSpacers.forEach(spacer => {
+                    spacer.style.display = 'none';
+                    spacer.style.height = '0';
+                });
+            }
+        });
+
+        // Initialize logs visibility
+        logsColumn.style.display = showLogsToggle.checked ? 'flex' : 'none';
+
+        const darkModeToggle = document.getElementById('darkMode');
+        
+        // Initialize theme
+        document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+        
+        // Theme toggle handler
+        darkModeToggle.addEventListener('change', () => {
+            document.body.classList.toggle('dark-mode', darkModeToggle.checked);
+            
+            // Save preference
+            localStorage.setItem('darkMode', darkModeToggle.checked);
+            
+            // Reprocess all log messages with new colors
+            const logMessages = document.querySelectorAll('.timeline-item.log-message');
+            logMessages.forEach(logMessage => {
+                const originalText = logMessage.getAttribute('data-original-text');
+                if (originalText) {
+                    logMessage.innerHTML = convertAnsiToHtml(originalText);
+                }
+            });
+        });
+        
+        // Load saved preference
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedDarkMode = localStorage.getItem('darkMode');
+            if (savedDarkMode !== null) {
+                const isDarkMode = savedDarkMode === 'true';
+                darkModeToggle.checked = isDarkMode;
+                document.body.classList.toggle('dark-mode', isDarkMode);
+            }
         });
     </script>
 </body>
