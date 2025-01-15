@@ -134,30 +134,6 @@ def generate_mock_data():
     # Save the mock data
     save_mock_data(mock_data)
 
-    # Log some sample data for testing
-    print("\n=== Sample Customer Data for Testing ===")
-    sample_customers = random.sample(customers, 3)
-    for customer in sample_customers:
-        print(f"\nCustomer: {customer['name']}")
-        print(f"ID: {customer['id']}")
-        print(f"Phone: {customer['phone']}")
-        print(f"Email: {customer['email']}")
-        # Find their appointments
-        customer_appointments = [
-            a for a in appointments if a["customer_id"] == customer["id"]
-        ]
-        if customer_appointments:
-            print("Appointments:")
-            for apt in customer_appointments[:2]:  # Show up to 2 appointments
-                print(f"- {apt['service']} on {apt['date'][:10]} ({apt['status']})")
-        # Find their orders
-        customer_orders = [o for o in orders if o["customer_id"] == customer["id"]]
-        if customer_orders:
-            print("Orders:")
-            for order in customer_orders[:2]:  # Show up to 2 orders
-                print(f"- Order {order['id']}: ${order['total']} ({order['status']})")
-    print("\n=====================================")
-
     return mock_data
 
 
