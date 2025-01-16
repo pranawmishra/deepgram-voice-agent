@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <title>Voice Agent Demo</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='syncscroll.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
@@ -56,11 +57,11 @@
         <div class="columns-container">
             <div id="conversation" class="timeline column">
                 <h2>Conversation</h2>
-                <div id="conversationMessages"></div>
+                <div id="conversationMessages" class="syncscroll" name="timeline"></div>
             </div>
             <div id="logs" class="timeline column">
                 <h2>Logs</h2>
-                <div id="logMessages"></div>
+                <div id="logMessages" class="syncscroll" name="timeline"></div>
             </div>
         </div>
     </div>
@@ -76,6 +77,9 @@
         let isActive = false;
         let currentGroup = null;
         let lastMessageTimestamp = null;
+        let messageCounter = 0;
+        const messageHeights = new Map(); // Store heights by counter
+        const messageOrder = []; // Keep track of message order
 
         async function requestMicrophonePermission() {
             try {
@@ -118,67 +122,62 @@
             return spacer;
         }
 
-        // Update scroll synchronization
-        function syncScroll(source, target) {
-            const scrollRatio = source.scrollTop / (source.scrollHeight - source.clientHeight);
-            const targetScrollTop = scrollRatio * (target.scrollHeight - target.clientHeight);
-            target.scrollTop = targetScrollTop;
-        }
-
-        conversationMessages.addEventListener('scroll', () => {
-            if (showLogsToggle.checked) {
-                syncScroll(conversationMessages, logMessages);
-            }
-        });
-
-        logMessages.addEventListener('scroll', () => {
-            if (showLogsToggle.checked) {
-                syncScroll(logMessages, conversationMessages);
-            }
-        });
-
         socket.on('conversation_update', (data) => {
             const timestamp = data.timestamp || new Date().toISOString();
+            const currentCounter = messageCounter++;
+            messageOrder.push({ id: currentCounter, timestamp: timestamp, type: 'conversation' });
             
-            // Create message for conversation column
             const messageDiv = document.createElement('div');
             messageDiv.className = `timeline-item message ${data.role}`;
             messageDiv.textContent = `${data.role}: ${data.content}`;
+            messageDiv.dataset.messageId = currentCounter;
             
-            // Insert message first so we can get its actual height
             insertTimelineItem(messageDiv, timestamp, conversationMessages);
             
-            // Now create spacer with actual height
-            const spacerHeight = messageDiv.offsetHeight;
-            const logSpacer = createSpacer(spacerHeight);
-            insertTimelineItem(logSpacer, timestamp, logMessages);
-            
-            // Hide spacer if logs are not visible
-            if (!showLogsToggle.checked) {
-                logSpacer.style.display = 'none';
-                logSpacer.style.height = '0';
-            }
+            requestAnimationFrame(() => {
+                const actualHeight = messageDiv.offsetHeight;
+                messageHeights.set(currentCounter, actualHeight);
+                
+                const logSpacer = createSpacer(actualHeight);
+                logSpacer.dataset.messageId = currentCounter;
+                insertTimelineItem(logSpacer, timestamp, logMessages);
+                
+                if (!showLogsToggle.checked) {
+                    logSpacer.style.display = 'none';
+                    logSpacer.style.height = '0';
+                }
+                
+                syncscroll.reset();
+            });
         });
 
         socket.on('log_message', (data) => {
+            const currentCounter = messageCounter++;
+            messageOrder.push({ id: currentCounter, timestamp: data.timestamp, type: 'log' });
+            
             const logDiv = document.createElement('div');
             logDiv.className = 'timeline-item log-message';
-            logDiv.setAttribute('data-original-text', data.message);  // Store original text
+            logDiv.setAttribute('data-original-text', data.message);
             logDiv.innerHTML = convertAnsiToHtml(data.message);
+            logDiv.dataset.messageId = currentCounter;
             
-            // Insert log first so we can get its actual height
             insertTimelineItem(logDiv, data.timestamp, logMessages);
             
-            // Now create spacer with actual height
-            const spacerHeight = logDiv.offsetHeight;
-            const conversationSpacer = createSpacer(spacerHeight);
-            insertTimelineItem(conversationSpacer, data.timestamp, conversationMessages);
-            
-            // Hide spacer if logs are not visible
-            if (!showLogsToggle.checked) {
-                conversationSpacer.style.display = 'none';
-                conversationSpacer.style.height = '0';
-            }
+            requestAnimationFrame(() => {
+                const actualHeight = logDiv.offsetHeight;
+                messageHeights.set(currentCounter, actualHeight);
+                
+                const conversationSpacer = createSpacer(actualHeight);
+                conversationSpacer.dataset.messageId = currentCounter;
+                insertTimelineItem(conversationSpacer, data.timestamp, conversationMessages);
+                
+                if (!showLogsToggle.checked) {
+                    conversationSpacer.style.display = 'none';
+                    conversationSpacer.style.height = '0';
+                }
+                
+                syncscroll.reset();
+            });
         });
 
         function insertTimelineItem(element, timestamp, container) {
@@ -203,22 +202,6 @@
             } else {
                 container.insertBefore(element, items[insertPosition]);
             }
-            
-            // Use requestAnimationFrame to ensure DOM updates are complete
-            requestAnimationFrame(() => {
-                const scrollPosition = container.scrollHeight - container.clientHeight;
-                if (container === conversationMessages) {
-                    conversationMessages.scrollTop = scrollPosition;
-                    if (showLogsToggle.checked) {
-                        syncScroll(conversationMessages, logMessages);
-                    }
-                } else {
-                    logMessages.scrollTop = scrollPosition;
-                    if (showLogsToggle.checked) {
-                        syncScroll(logMessages, conversationMessages);
-                    }
-                }
-            });
         }
 
         function convertAnsiToHtml(text) {
@@ -280,36 +263,50 @@
         showLogsToggle.addEventListener('change', () => {
             logsColumn.style.display = showLogsToggle.checked ? 'flex' : 'none';
             
-            // Get all spacers
-            const allSpacers = document.querySelectorAll('.timeline-spacer');
-            
             if (showLogsToggle.checked) {
-                // Show logs - recalculate all spacer heights
-                const logItems = document.querySelectorAll('.timeline-item.log-message');
-                logItems.forEach(logItem => {
-                    const timestamp = logItem.dataset.timestamp;
-                    const spacer = conversationMessages.querySelector(`.timeline-spacer[data-timestamp="${timestamp}"]`);
-                    if (spacer) {
-                        requestAnimationFrame(() => {
-                            spacer.style.display = 'block';
-                            spacer.style.height = `${logItem.offsetHeight}px`;
-                        });
+                // Process messages in chronological order
+                messageOrder.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                
+                // First reset all spacers
+                const allSpacers = document.querySelectorAll('.timeline-spacer');
+                allSpacers.forEach(spacer => {
+                    spacer.style.display = 'block';
+                    const messageId = spacer.dataset.messageId;
+                    const height = messageHeights.get(parseInt(messageId));
+                    if (height) {
+                        spacer.style.height = `${height}px`;
                     }
                 });
-
-                const messageItems = conversationMessages.querySelectorAll('.timeline-item.message');
-                messageItems.forEach(messageItem => {
-                    const timestamp = messageItem.dataset.timestamp;
-                    const spacer = logMessages.querySelector(`.timeline-spacer[data-timestamp="${timestamp}"]`);
-                    if (spacer) {
-                        requestAnimationFrame(() => {
-                            spacer.style.display = 'block';
-                            spacer.style.height = `${messageItem.offsetHeight}px`;
-                        });
+                
+                messageOrder.forEach(message => {
+                    const height = messageHeights.get(message.id);
+                    if (height) {
+                        const logItem = logMessages.querySelector(`[data-message-id="${message.id}"]`);
+                        const conversationItem = conversationMessages.querySelector(`[data-message-id="${message.id}"]`);
+                        
+                        if (logItem && conversationItem) {
+                            if (message.type === 'log') {
+                                logItem.style.display = 'block';
+                                if (conversationItem.classList.contains('timeline-spacer')) {
+                                    conversationItem.style.display = 'block';
+                                    conversationItem.style.height = `${height}px`;
+                                }
+                            } else {
+                                conversationItem.style.display = 'block';
+                                if (logItem.classList.contains('timeline-spacer')) {
+                                    logItem.style.display = 'block';
+                                    logItem.style.height = `${height}px`;
+                                }
+                            }
+                        }
                     }
+                });
+                
+                requestAnimationFrame(() => {
+                    syncscroll.reset();
                 });
             } else {
-                // Hide logs - collapse all spacers
+                const allSpacers = document.querySelectorAll('.timeline-spacer');
                 allSpacers.forEach(spacer => {
                     spacer.style.display = 'none';
                     spacer.style.height = '0';
