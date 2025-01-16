@@ -26,29 +26,40 @@
                 <h3>Sample Customer Data</h3>
                 <div class="sample-data-content">
                     {% for customer in sample_data %}
-                    <div class="customer-card">
-                        <div class="customer-info">
-                            <div><strong>{{ customer.Customer }}</strong></div>
-                            <div>ID: {{ customer.ID }}</div>
-                            <div>Phone: {{ customer.Phone }}</div>
-                            <div>Email: {{ customer.Email }}</div>
+                    <div class="customer-card collapsed">
+                        <div class="customer-header">
+                            <div class="customer-info">
+                                <div><strong>{{ customer.Customer }}</strong></div>
+                                <div>ID: {{ customer.ID }}</div>
+                            </div>
+                            <div class="expand-icon">▼</div>
                         </div>
-                        {% if customer.Appointments %}
-                        <div class="customer-appointments">
-                            <strong>Appointments:</strong>
-                            {% for apt in customer.Appointments %}
-                            <div>{{ apt.Service }} - {{ apt.Date }} ({{ apt.Status }})</div>
-                            {% endfor %}
+                        <div class="customer-details">
+                            <div class="customer-contact">
+                                <div>Phone: {{ customer.Phone }}</div>
+                                <div>Email: {{ customer.Email }}</div>
+                            </div>
+                            {% if customer.Appointments %}
+                            <div class="customer-appointments">
+                                <strong>Appointments:</strong>
+                                {% for apt in customer.Appointments %}
+                                <div>{{ apt.Service }} - {{ apt.Date }} ({{ apt.Status }})</div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% if customer.Orders %}
+                            <div class="customer-orders">
+                                <strong>Orders:</strong>
+                                {% for order in customer.Orders %}
+                                <div>{{ order.ID }}</div>
+                                <div>- Items: {{ order['# Items'] }}</div>
+                                <div>- Total: {{ order.Total }}</div>
+                                <div>- Status: {{ order.Status }}</div>
+                                <div>- Date: {{ order.Date }}</div>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
                         </div>
-                        {% endif %}
-                        {% if customer.Orders %}
-                        <div class="customer-orders">
-                            <strong>Orders:</strong>
-                            {% for order in customer.Orders %}
-                            <div>{{ order.ID }}: {{ order.Total }} ({{ order.Status }})</div>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
                     </div>
                     {% endfor %}
                 </div>
@@ -347,6 +358,30 @@
                 darkModeToggle.checked = isDarkMode;
                 document.body.classList.toggle('dark-mode', isDarkMode);
             }
+        });
+
+        function toggleCustomer(card) {
+            const wasCollapsed = card.classList.contains('collapsed');
+            
+            // First collapse all cards
+            document.querySelectorAll('.customer-card').forEach(otherCard => {
+                otherCard.classList.add('collapsed');
+            });
+            
+            // Then expand the clicked card if it was collapsed
+            if (wasCollapsed) {
+                card.classList.remove('collapsed');
+            }
+        }
+
+        // Initialize all cards as collapsed
+        document.addEventListener('DOMContentLoaded', () => {
+            const cards = document.querySelectorAll('.customer-card');
+            cards.forEach(card => {
+                card.classList.add('collapsed');
+                // Add click handler to entire card
+                card.addEventListener('click', () => toggleCustomer(card));
+            });
         });
     </script>
 </body>

@@ -118,6 +118,8 @@ def generate_mock_data():
                     "ID": order["id"],
                     "Total": f"${order['total']}",
                     "Status": order["status"],
+                    "Date": order["date"][:10],
+                    "# Items": order["items"],
                 }
             )
 

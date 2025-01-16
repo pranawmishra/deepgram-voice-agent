@@ -332,6 +332,8 @@ body:not(.dark-mode) .sample-data h3 {
     background-color: var(--item-bg-dark);
     border-radius: 4px;
     color: var(--text-color-dark);
+    cursor: pointer;
+    transition: transform 0.2s;
 }
 
 body:not(.dark-mode) .customer-card {
@@ -380,4 +382,46 @@ body:not(.dark-mode) .timeline-item.message.user {
 
 body:not(.dark-mode) .timeline-item.message.assistant {
     background-color: var(--assistant-bg-light);
+}
+
+.customer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.expand-icon {
+    transition: transform 0.3s;
+}
+
+.customer-card.collapsed .expand-icon {
+    transform: rotate(-90deg);
+}
+
+.customer-details {
+    overflow: hidden;
+    transition: max-height 0.3s ease-out, opacity 0.2s ease-out;
+    max-height: 500px;
+    opacity: 1;
+}
+
+.customer-card.collapsed .customer-details {
+    max-height: 0;
+    opacity: 0;
+    margin: 0;
+    padding: 0;
+}
+
+.customer-contact {
+    margin: 8px 0;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color-dark);
+}
+
+body:not(.dark-mode) .customer-contact {
+    border-top-color: var(--border-color-light);
+}
+
+.customer-card:hover {
+    transform: translateX(2px);
 }
