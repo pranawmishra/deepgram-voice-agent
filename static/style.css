@@ -19,8 +19,10 @@
 body {
     font-family: Arial, sans-serif;
     margin: 0;
-    padding: 20px;
+    padding: 0;
     transition: background-color 0.3s;
+    overflow: hidden;
+    height: 100vh;
 }
 
 body.dark-mode {
@@ -36,8 +38,9 @@ body:not(.dark-mode) {
 .main-container {
     display: flex;
     gap: 20px;
-    height: calc(100vh - 40px);
-    margin: 20px;
+    height: 100vh;
+    padding: 10px;
+    box-sizing: border-box;
 }
 
 .sidebar {
@@ -52,6 +55,7 @@ body:not(.dark-mode) {
     flex: 1;
     display: flex;
     gap: 20px;
+    height: 100%;
 }
 
 .content {
@@ -164,12 +168,13 @@ body:not(.dark-mode) {
     flex: 1;
     border: 1px solid var(--border-color-dark);
     border-radius: 5px;
-    padding: 15px;
+    padding: 10px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
     background-color: var(--column-bg-dark);
     transition: all 0.3s;
+    max-height: calc(100vh - 60px);
 }
 
 body:not(.dark-mode) .column {
@@ -180,7 +185,7 @@ body:not(.dark-mode) .column {
 
 .column h2 {
     margin-top: 0;
-    margin-bottom: 15px;
+    margin-bottom: 10px;
     color: var(--text-color-dark);
     transition: color 0.3s;
 }
@@ -193,6 +198,8 @@ body:not(.dark-mode) .column h2 {
     overflow-y: scroll;
     flex-grow: 1;
     scrollbar-gutter: stable;
+    padding: 5px;
+    height: calc(100% - 40px);
 }
 
 .log-message {
