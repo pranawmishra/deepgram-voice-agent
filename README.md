@@ -88,6 +88,7 @@ poetry install
 ```
 
 3. Set your Deepgram API key:
+
    - Either programatically
 ```bash
 export DEEPGRAM_API_KEY=<your-key-here>
