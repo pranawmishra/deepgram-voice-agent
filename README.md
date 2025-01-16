@@ -87,9 +87,7 @@ In the root directory of the project, run the following command to install the d
 poetry install
 ```
 
-3. Set your Deepgram API key:
-
-   - Either programatically
+3. Set your Deepgram API key. Either programatically:
 ```bash
 export DEEPGRAM_API_KEY=<your-key-here>
 ```
