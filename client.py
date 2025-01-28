@@ -187,7 +187,7 @@ Remember: ANY phrase indicating you're about to look something up MUST be done t
 """
 VOICE = "aura-asteria-en"
 
-USER_AUDIO_SAMPLE_RATE = 16000
+USER_AUDIO_SAMPLE_RATE = 48000
 USER_AUDIO_SECS_PER_CHUNK = 0.05
 USER_AUDIO_SAMPLES_PER_CHUNK = round(USER_AUDIO_SAMPLE_RATE * USER_AUDIO_SECS_PER_CHUNK)
 
@@ -292,7 +292,7 @@ class VoiceAgent:
                 if device_info.get("maxInputChannels") > 0:
                     logger.info(f"Input Device {i}: {device_info.get('name')}")
                     input_device_index = i
-                    break
+                    # break
 
             if input_device_index is None:
                 raise Exception("No input device found")

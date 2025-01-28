@@ -133,6 +133,13 @@
             return spacer;
         }
 
+        function scrollToBottom() {
+            requestAnimationFrame(() => {
+                conversationMessages.scrollTop = conversationMessages.scrollHeight;
+                logMessages.scrollTop = logMessages.scrollHeight;
+            });
+        }
+
         socket.on('conversation_update', (data) => {
             const timestamp = data.timestamp || new Date().toISOString();
             const currentCounter = messageCounter++;
@@ -159,6 +166,7 @@
                 }
                 
                 syncscroll.reset();
+                scrollToBottom();
             });
         });
 
@@ -188,6 +196,7 @@
                 }
                 
                 syncscroll.reset();
+                scrollToBottom();
             });
         });
 
