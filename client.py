@@ -14,90 +14,12 @@ from datetime import datetime
 from functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
 import logging
 from business_logic import MOCK_DATA
+from common.log_formatter import CustomFormatter
 
 
-class ColorFormatter(logging.Formatter):
-    """Custom formatter to color-code log messages based on their content."""
-
-    # ANSI escape codes for colors - using accessible palette
-    COLORS = {
-        "RESET": "\033[0m",
-        "WHITE": "\033[38;5;231m",  # Default text color
-        "BLUE": "\033[38;5;116m",  # User/STT messages
-        "GREEN": "\033[38;5;114m",  # Agent speaking/TTS
-        "VIOLET": "\033[38;5;183m",  # Function calls
-        "YELLOW": "\033[38;5;186m",  # Latency info
-    }
-
-    def format(self, record):
-        # Default format string
-        format_str = "%(asctime)s.%(msecs)03d %(levelname)s: %(message)s"
-
-        # Default to white
-        color = self.COLORS["WHITE"]
-
-        msg = str(record.msg).lower()
-
-        # Check for JSON content
-        if "server:" in msg and "{" in msg:
-            try:
-                # Extract the JSON part
-                json_str = msg[msg.find("{") : msg.rfind("}") + 1]
-                data = json.loads(json_str)
-
-                # User/STT related messages
-                if data.get("type") in ["userstartedspeaking", "endofthought"] or (
-                    data.get("type") == "conversationtext"
-                    and data.get("role") == "user"
-                ):
-                    color = self.COLORS["BLUE"]
-
-                # Agent speaking/TTS related messages
-                elif data.get("type") in ["agentstartedspeaking", "agentaudiodone"] or (
-                    data.get("type") == "conversationtext"
-                    and data.get("role") == "assistant"
-                ):
-                    color = self.COLORS["GREEN"]
-
-                # Agent thinking/function calling
-                elif data.get("type") in ["functioncalling", "functioncallrequest"]:
-                    color = self.COLORS["VIOLET"]
-
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        # Non-JSON messages
-        else:
-            if any(
-                phrase in msg
-                for phrase in ["function response", "parameters", "function call"]
-            ):
-                color = self.COLORS["VIOLET"]
-            elif "injectagentmessage" in msg:
-                color = self.COLORS["GREEN"]
-            elif any(
-                phrase in msg
-                for phrase in ["decision latency", "function execution latency"]
-            ):
-                color = self.COLORS["YELLOW"]
-
-        # Apply the color to the format string
-        formatter = logging.Formatter(
-            color + format_str + self.COLORS["RESET"], datefmt="%H:%M:%S"
-        )
-        formatted_message = formatter.format(record)
-
-        # Emit the log message to the client with timestamp
-        try:
-            socketio.emit(
-                "log_message",
-                {"message": formatted_message, "timestamp": datetime.now().isoformat()},
-            )
-        except Exception as e:
-            print(f"Error emitting log message: {e}")
-
-        return formatted_message
-
+# Configure Flask and SocketIO
+app = Flask(__name__, static_folder="./static", static_url_path="/")
+socketio = SocketIO(app)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -105,7 +27,7 @@ logger.setLevel(logging.INFO)
 
 # Create console handler with the custom formatter
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(ColorFormatter())
+console_handler.setFormatter(CustomFormatter(socketio=socketio))
 logger.addHandler(console_handler)
 
 # Remove any existing handlers from the root logger to avoid duplicate messages
@@ -238,6 +160,8 @@ class VoiceAgent:
         self.loop = None
         self.audio = None
         self.stream = None
+        self.input_device_id = None
+        self.output_device_id = None
 
     def set_loop(self, loop):
         self.loop = loop
@@ -291,8 +215,16 @@ class VoiceAgent:
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
                     logger.info(f"Input Device {i}: {device_info.get('name')}")
-                    input_device_index = i
-                    # break
+                    # Use selected device if available
+                    if (
+                        self.input_device_id
+                        and str(device_info.get("deviceId")) == self.input_device_id
+                    ):
+                        input_device_index = i
+                        break
+                    # Otherwise use first available device
+                    elif input_device_index is None:
+                        input_device_index = i
 
             if input_device_index is None:
                 raise Exception("No input device found")
@@ -632,11 +564,6 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
     await asyncio.sleep(3.5)
 
 
-# Configure Flask and SocketIO
-app = Flask(__name__, static_folder="./static", static_url_path="/")
-socketio = SocketIO(app)
-
-
 # Flask routes
 @app.route("/")
 def index():
@@ -686,10 +613,13 @@ def run_async_voice_agent():
 
 
 @socketio.on("start_voice_agent")
-def handle_start_voice_agent():
+def handle_start_voice_agent(data=None):
     global voice_agent
     if voice_agent is None:
         voice_agent = VoiceAgent()
+        if data:
+            voice_agent.input_device_id = data.get("inputDeviceId")
+            voice_agent.output_device_id = data.get("outputDeviceId")
         # Start the voice agent in a background thread
         socketio.start_background_task(target=run_async_voice_agent)
 
