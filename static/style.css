@@ -478,3 +478,15 @@ body:not(.dark-mode) .customer-contact {
     color: var(--text-primary);
     border: 1px solid var(--border-color);
 }
+
+/* Add dark mode specific styles */
+body.dark-mode .device-select select {
+    background-color: var(--item-bg-dark);
+    color: var(--text-color-dark);
+    border-color: var(--border-color-dark);
+}
+
+body.dark-mode .device-select select option {
+    background-color: var(--item-bg-dark);
+    color: var(--text-color-dark);
+}
