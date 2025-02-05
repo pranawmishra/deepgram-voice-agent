@@ -3,7 +3,8 @@
 This repository serves as a reference implementation for integrating function calling capabilities with Deepgram's Voice Agent API using Python Flask. It demonstrates production-ready patterns for building AI Voice Agent applications with clientside function calling. In addition, it surfaces logs to the user to help understand the flow from user to assistant to LLM.
 
 ## UI
-![image](https://github.com/user-attachments/assets/6e6ea272-a62d-44e1-b94b-464e99a69545)
+![image](https://github.com/user-attachments/assets/30d5bfc3-4686-4f5a-a49b-9d38a6f85d0b)
+
 
 
 
