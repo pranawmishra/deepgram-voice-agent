@@ -11,9 +11,9 @@ import queue
 import sys
 import time
 from datetime import datetime
-from functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
+from common.agent_functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
 import logging
-from business_logic import MOCK_DATA
+from common.business_logic import MOCK_DATA
 from common.log_formatter import CustomFormatter
 
 
