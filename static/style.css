@@ -452,3 +452,41 @@ body:not(.dark-mode) .customer-contact {
         min-width: 0;
     }
 }
+
+.audio-controls {
+    margin: 10px 0;
+    padding: 10px;
+    background: var(--bg-secondary);
+    border-radius: 5px;
+}
+
+.device-select {
+    margin: 5px 0;
+}
+
+.device-select label {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--text-primary);
+}
+
+.device-select select {
+    width: 100%;
+    padding: 5px;
+    border-radius: 3px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+/* Add dark mode specific styles */
+body.dark-mode .device-select select {
+    background-color: var(--item-bg-dark);
+    color: var(--text-color-dark);
+    border-color: var(--border-color-dark);
+}
+
+body.dark-mode .device-select select option {
+    background-color: var(--item-bg-dark);
+    color: var(--text-color-dark);
+}
