@@ -39,10 +39,12 @@ Shows how to implement natural dialogue patterns:
 ## Project Structure
 
 ```
-├── business_logic.py     # Core function implementations
+├── common/
+│   ├── agent_functions.py    # Function definitions and routing
+│   ├── business_logic.py     # Core function implementations
+│   ├── config.py             # Configuration settings
+│   ├── log_formatter.py      # Logger setup
 ├── client.py             # WebSocket client and message handling
-├── config.py             # Configuration settings
-├── functions.py          # Function definitions and routing
 ```
 
 ## Mock Data System
