@@ -12,6 +12,12 @@
         <div class="sidebar">
             <button id="startButton" class="mic-button">Start Voice Agent</button>
             <div id="status" class="status">Microphone: Not active</div>
+            <div class="audio-controls">
+                <div class="device-select">
+                    <label for="inputDevice">Input Device:</label>
+                    <select id="inputDevice"></select>
+                </div>
+            </div>
             <div class="controls">
                 <label class="toggle">
                     <input type="checkbox" id="showLogs">
@@ -85,12 +91,71 @@
         const statusDiv = document.getElementById('status');
         const showLogsToggle = document.getElementById('showLogs');
         const logsColumn = document.getElementById('logs');
+        const inputSelect = document.getElementById('inputDevice');
         let isActive = false;
         let currentGroup = null;
         let lastMessageTimestamp = null;
         let messageCounter = 0;
         const messageHeights = new Map(); // Store heights by counter
         const messageOrder = []; // Keep track of message order
+
+        // Populate audio devices
+        async function loadAudioDevices() {
+            try {
+                // Request permission to access audio devices
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                
+                // Get the list of devices
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                
+                // Stop the temporary stream
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Clear existing options
+                inputSelect.innerHTML = '';
+                
+                // Add input devices
+                const inputDevices = devices.filter(device => device.kind === 'audioinput');
+                inputDevices.forEach(device => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Microphone ${inputSelect.length + 1}`;
+                    inputSelect.appendChild(option);
+                });
+
+                console.log(`Found ${inputDevices.length} input devices`);
+            } catch (err) {
+                console.error('Error loading audio devices:', err);
+                statusDiv.textContent = 'Error: Could not access audio devices';
+            }
+        }
+
+        // Load devices initially and when devices change
+        navigator.mediaDevices.addEventListener('devicechange', loadAudioDevices);
+        loadAudioDevices();
+
+        // Send selected devices to server when starting
+        startButton.addEventListener('click', async () => {
+            if (!isActive) {
+                const hasPermission = await requestMicrophonePermission();
+                if (!hasPermission) {
+                    alert('Microphone permission is required for the voice agent to work.');
+                    return;
+                }
+
+                socket.emit('start_voice_agent', {
+                    inputDeviceId: inputSelect.value
+                });
+                startButton.textContent = 'Stop Voice Agent';
+                statusDiv.textContent = 'Microphone: Active';
+                isActive = true;
+            } else {
+                socket.emit('stop_voice_agent');
+                startButton.textContent = 'Start Voice Agent';
+                statusDiv.textContent = 'Microphone: Not active';
+                isActive = false;
+            }
+        });
 
         async function requestMicrophonePermission() {
             try {
@@ -104,27 +169,6 @@
                 return false;
             }
         }
-
-        startButton.addEventListener('click', async () => {
-            if (!isActive) {
-                // Request microphone permission before starting
-                const hasPermission = await requestMicrophonePermission();
-                if (!hasPermission) {
-                    alert('Microphone permission is required for the voice agent to work.');
-                    return;
-                }
-
-                socket.emit('start_voice_agent');
-                startButton.textContent = 'Stop Voice Agent';
-                statusDiv.textContent = 'Microphone: Active';
-                isActive = true;
-            } else {
-                socket.emit('stop_voice_agent');
-                startButton.textContent = 'Start Voice Agent';
-                statusDiv.textContent = 'Microphone: Not active';
-                isActive = false;
-            }
-        });
 
         function createSpacer(height) {
             const spacer = document.createElement('div');

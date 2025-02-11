@@ -2,8 +2,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 import random
-from config import ARTIFICIAL_DELAY, MOCK_DATA_SIZE
-import os
+from common.config import ARTIFICIAL_DELAY, MOCK_DATA_SIZE
 import pathlib
 
 
