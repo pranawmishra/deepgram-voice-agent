@@ -71,23 +71,29 @@ In Ubuntu:
 sudo apt-get install portaudio19-dev
 ```
 
-`poetry`  can be used to manage virtual env. and packages in one easy to use tool
+`pipenv` can be used to manage virtual env. and packages in one easy to use tool. Instead of running pip commands, you just use [pipenv](https://pypi.org/project/pipenv/).
 
-1. Install poetry if not already installed.
+1. Install pipenv if not already installed.
 
 ```bash
-pip install poetry
+pip install pipenv
 ```
 
-2. Install the project dependencies:
+2. Switch to the pipenv virtual environment:
+
+```bash
+pipenv shell
+```
+
+3. Install the project dependencies:
 
 In the root directory of the project, run the following command to install the dependencies:
 
 ```bash
-poetry install
+pipenv install -r requirements.txt
 ```
 
-3. Set your Deepgram API key. Either programatically:
+4. Set your Deepgram API key. Either programatically:
 ```bash
 export DEEPGRAM_API_KEY=<your-key-here>
 ```
