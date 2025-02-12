@@ -1,6 +1,12 @@
 # Voice Agent Function Calling Python Demo
 
-This repository serves as a reference implementation for integrating function calling capabilities with Deepgram's Voice Agent API using Python Flask. It demonstrates production-ready patterns for building AI Voice Agent applications with clientside function calling.
+This repository serves as a reference implementation for integrating function calling capabilities with Deepgram's Voice Agent API using Python Flask. It demonstrates production-ready patterns for building AI Voice Agent applications with clientside function calling. In addition, it surfaces logs to the user to help understand the flow from user to assistant to LLM.
+
+## UI
+![image](https://github.com/user-attachments/assets/30d5bfc3-4686-4f5a-a49b-9d38a6f85d0b)
+
+
+
 
 ## Sign-up to Deepgram
 
@@ -17,6 +23,7 @@ This reference implementation demonstrates:
 - Order history retrieval
 - Appointment scheduling and management
 - Graceful conversation termination through an `end_call` function
+- Logging in the UI for debugging
 
 ### Function Calling Architecture
 The implementation uses a three-layer architecture:
@@ -34,10 +41,12 @@ Shows how to implement natural dialogue patterns:
 ## Project Structure
 
 ```
-├── business_logic.py     # Core function implementations
+├── common/
+│   ├── agent_functions.py    # Function definitions and routing
+│   ├── business_logic.py     # Core function implementations
+│   ├── config.py             # Configuration settings
+│   ├── log_formatter.py      # Logger setup
 ├── client.py             # WebSocket client and message handling
-├── config.py             # Configuration settings
-├── functions.py          # Function definitions and routing
 ```
 
 ## Mock Data System
@@ -54,7 +63,19 @@ The implementation demonstrates how to handle real-world latency:
 
 ## Setup Instructions
 
-`pipenv`  can be used to manage virtual env. and packages in one easy to use tool. instead of running pip commands, you just use [pipenv](https://pypi.org/project/pipenv/).
+0. Make sure you have portaudio installed.
+
+In macOS:
+```bash
+brew install portaudio:
+```
+
+In Ubuntu:
+```bash
+sudo apt-get install portaudio19-dev
+```
+
+`pipenv` can be used to manage virtual env. and packages in one easy to use tool. Instead of running pip commands, you just use [pipenv](https://pypi.org/project/pipenv/).
 
 1. Install pipenv if not already installed.
 
@@ -62,7 +83,8 @@ The implementation demonstrates how to handle real-world latency:
 pip install pipenv
 ```
 
-2. Switch to a pipenv virtual env.
+2. Switch to the pipenv virtual environment:
+
 ```bash
 pipenv shell
 ```
@@ -75,9 +97,13 @@ In the root directory of the project, run the following command to install the d
 pipenv install -r requirements.txt
 ```
 
-3. Set your Deepgram API key:
+4. Set your Deepgram API key. Either programatically:
 ```bash
 export DEEPGRAM_API_KEY=<your-key-here>
+```
+   - or in a file named `.env` within your root directory which has this entry:
+```
+DEEPGRAM_API_KEY=<your-key-here>
 ```
 
 ## Application Usage

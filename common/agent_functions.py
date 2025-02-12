@@ -1,65 +1,73 @@
 import json
 from datetime import datetime, timedelta
 import asyncio
-from business_logic import (
+from .business_logic import (
     get_customer,
     get_customer_appointments,
     get_customer_orders,
     schedule_appointment,
     get_available_appointment_slots,
     prepare_agent_filler_message,
-    prepare_farewell_message
+    prepare_farewell_message,
 )
+
 
 async def find_customer(params):
     """Look up a customer by phone, email, or ID."""
     phone = params.get("phone")
     email = params.get("email")
     customer_id = params.get("customer_id")
-    
+
     result = await get_customer(phone=phone, email=email, customer_id=customer_id)
     return result
+
 
 async def get_appointments(params):
     """Get appointments for a customer."""
     customer_id = params.get("customer_id")
     if not customer_id:
         return {"error": "customer_id is required"}
-    
+
     result = await get_customer_appointments(customer_id)
     return result
+
 
 async def get_orders(params):
     """Get orders for a customer."""
     customer_id = params.get("customer_id")
     if not customer_id:
         return {"error": "customer_id is required"}
-    
+
     result = await get_customer_orders(customer_id)
     return result
+
 
 async def create_appointment(params):
     """Schedule a new appointment."""
     customer_id = params.get("customer_id")
     date = params.get("date")
     service = params.get("service")
-    
+
     if not all([customer_id, date, service]):
         return {"error": "customer_id, date, and service are required"}
-    
+
     result = await schedule_appointment(customer_id, date, service)
     return result
+
 
 async def check_availability(params):
     """Check available appointment slots."""
     start_date = params.get("start_date")
-    end_date = params.get("end_date", (datetime.fromisoformat(start_date) + timedelta(days=7)).isoformat())
-    
+    end_date = params.get(
+        "end_date", (datetime.fromisoformat(start_date) + timedelta(days=7)).isoformat()
+    )
+
     if not start_date:
         return {"error": "start_date is required"}
-    
+
     result = await get_available_appointment_slots(start_date, end_date)
     return result
+
 
 async def agent_filler(websocket, params):
     """
@@ -68,6 +76,7 @@ async def agent_filler(websocket, params):
     result = await prepare_agent_filler_message(websocket, **params)
     return result
 
+
 async def end_call(websocket, params):
     """
     End the conversation and close the connection.
@@ -75,6 +84,7 @@ async def end_call(websocket, params):
     farewell_type = params.get("farewell_type", "general")
     result = await prepare_farewell_message(websocket, farewell_type)
     return result
+
 
 # Function definitions that will be sent to the Voice Agent API
 FUNCTION_DEFINITIONS = [
@@ -89,11 +99,11 @@ FUNCTION_DEFINITIONS = [
                 "message_type": {
                     "type": "string",
                     "description": "Type of filler message to use. Use 'lookup' when about to search for information.",
-                    "enum": ["lookup", "general"]
+                    "enum": ["lookup", "general"],
                 }
             },
-            "required": ["message_type"]
-        }
+            "required": ["message_type"],
+        },
     },
     {
         "name": "find_customer",
@@ -119,7 +129,7 @@ FUNCTION_DEFINITIONS = [
             "properties": {
                 "customer_id": {
                     "type": "string",
-                    "description": "Customer's ID. Format as CUSTXXXX where XXXX is the number padded to 4 digits with leading zeros. Example: if user says '42', pass 'CUST0042'"
+                    "description": "Customer's ID. Format as CUSTXXXX where XXXX is the number padded to 4 digits with leading zeros. Example: if user says '42', pass 'CUST0042'",
                 },
                 "phone": {
                     "type": "string",
@@ -127,7 +137,7 @@ FUNCTION_DEFINITIONS = [
                     - Add +1 if not provided
                     - Remove any spaces, dashes, or parentheses
                     - Convert spoken numbers to digits
-                    Example: 'five five five one two three four five six seven' → '+15551234567'"""
+                    Example: 'five five five one two three four five six seven' → '+15551234567'""",
                 },
                 "email": {
                     "type": "string",
@@ -135,10 +145,10 @@ FUNCTION_DEFINITIONS = [
                     - Convert 'dot' to '.'
                     - Convert 'at' to '@'
                     - Remove spaces between spelled out letters
-                    Example: 'j dot smith at example dot com' → 'j.smith@example.com'"""
-                }
-            }
-        }
+                    Example: 'j dot smith at example dot com' → 'j.smith@example.com'""",
+                },
+            },
+        },
     },
     {
         "name": "get_appointments",
@@ -153,11 +163,11 @@ FUNCTION_DEFINITIONS = [
             "properties": {
                 "customer_id": {
                     "type": "string",
-                    "description": "Customer's ID in CUSTXXXX format. Must be obtained from find_customer first."
+                    "description": "Customer's ID in CUSTXXXX format. Must be obtained from find_customer first.",
                 }
             },
-            "required": ["customer_id"]
-        }
+            "required": ["customer_id"],
+        },
     },
     {
         "name": "get_orders",
@@ -172,11 +182,11 @@ FUNCTION_DEFINITIONS = [
             "properties": {
                 "customer_id": {
                     "type": "string",
-                    "description": "Customer's ID in CUSTXXXX format. Must be obtained from find_customer first."
+                    "description": "Customer's ID in CUSTXXXX format. Must be obtained from find_customer first.",
                 }
             },
-            "required": ["customer_id"]
-        }
+            "required": ["customer_id"],
+        },
     },
     {
         "name": "create_appointment",
@@ -193,20 +203,20 @@ FUNCTION_DEFINITIONS = [
             "properties": {
                 "customer_id": {
                     "type": "string",
-                    "description": "Customer's ID in CUSTXXXX format. Must be obtained from find_customer first."
+                    "description": "Customer's ID in CUSTXXXX format. Must be obtained from find_customer first.",
                 },
                 "date": {
                     "type": "string",
-                    "description": "Appointment date and time in ISO format (YYYY-MM-DDTHH:MM:SS). Must be a time slot confirmed as available."
+                    "description": "Appointment date and time in ISO format (YYYY-MM-DDTHH:MM:SS). Must be a time slot confirmed as available.",
                 },
                 "service": {
                     "type": "string",
                     "description": "Type of service requested. Must be one of the following: Consultation, Follow-up, Review, or Planning",
-                    "enum": ["Consultation", "Follow-up", "Review", "Planning"]
-                }
+                    "enum": ["Consultation", "Follow-up", "Review", "Planning"],
+                },
             },
-            "required": ["customer_id", "date", "service"]
-        }
+            "required": ["customer_id", "date", "service"],
+        },
     },
     {
         "name": "check_availability",
@@ -222,15 +232,15 @@ FUNCTION_DEFINITIONS = [
             "properties": {
                 "start_date": {
                     "type": "string",
-                    "description": "Start date in ISO format (YYYY-MM-DDTHH:MM:SS). Usually today's date for immediate availability checks."
+                    "description": "Start date in ISO format (YYYY-MM-DDTHH:MM:SS). Usually today's date for immediate availability checks.",
                 },
                 "end_date": {
                     "type": "string",
-                    "description": "End date in ISO format. Optional - defaults to 7 days after start_date. Use for specific date range requests."
-                }
+                    "description": "End date in ISO format. Optional - defaults to 7 days after start_date. Use for specific date range requests.",
+                },
             },
-            "required": ["start_date"]
-        }
+            "required": ["start_date"],
+        },
     },
     {
         "name": "end_call",
@@ -253,12 +263,12 @@ FUNCTION_DEFINITIONS = [
                 "farewell_type": {
                     "type": "string",
                     "description": "Type of farewell to use in response",
-                    "enum": ["thanks", "general", "help"]
+                    "enum": ["thanks", "general", "help"],
                 }
             },
-            "required": ["farewell_type"]
-        }
-    }
+            "required": ["farewell_type"],
+        },
+    },
 ]
 
 # Map function names to their implementations
@@ -269,5 +279,5 @@ FUNCTION_MAP = {
     "create_appointment": create_appointment,
     "check_availability": check_availability,
     "agent_filler": agent_filler,
-    "end_call": end_call
+    "end_call": end_call,
 }

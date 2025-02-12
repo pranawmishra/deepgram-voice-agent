@@ -11,67 +11,15 @@ import queue
 import sys
 import time
 from datetime import datetime
-from functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
+from common.agent_functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
 import logging
+from common.business_logic import MOCK_DATA
+from common.log_formatter import CustomFormatter
 
-class ColorFormatter(logging.Formatter):
-    """Custom formatter to color-code log messages based on their content."""
 
-    # ANSI escape codes for colors - using accessible palette
-    COLORS = {
-        'RESET': '\033[0m',
-        'WHITE': '\033[38;5;231m',    # Default text color
-        'BLUE': '\033[38;5;116m',    # User/STT messages
-        'GREEN': '\033[38;5;114m',    # Agent speaking/TTS
-        'VIOLET': '\033[38;5;183m',   # Function calls
-        'YELLOW': '\033[38;5;186m',   # Latency info
-    }
-
-    def format(self, record):
-        # Default format string
-        format_str = '%(asctime)s.%(msecs)03d %(levelname)s: %(message)s'
-
-        # Default to white
-        color = self.COLORS['WHITE']
-
-        msg = str(record.msg).lower()
-
-        # Check for JSON content
-        if "server:" in msg and "{" in msg:
-            try:
-                # Extract the JSON part
-                json_str = msg[msg.find("{"):msg.rfind("}") + 1]
-                data = json.loads(json_str)
-
-                # User/STT related messages
-                if (data.get("type") in ["userstartedspeaking", "endofthought"] or
-                    (data.get("type") == "conversationtext" and data.get("role") == "user")):
-                    color = self.COLORS['BLUE']
-
-                # Agent speaking/TTS related messages
-                elif (data.get("type") in ["agentstartedspeaking", "agentaudiodone"] or
-                      (data.get("type") == "conversationtext" and data.get("role") == "assistant")):
-                    color = self.COLORS['GREEN']
-
-                # Agent thinking/function calling
-                elif data.get("type") in ["functioncalling", "functioncallrequest"]:
-                    color = self.COLORS['VIOLET']
-
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        # Non-JSON messages
-        else:
-            if any(phrase in msg for phrase in ["function response", "parameters", "function call"]):
-                color = self.COLORS['VIOLET']
-            elif "injectagentmessage" in msg:
-                color = self.COLORS['GREEN']
-            elif any(phrase in msg for phrase in ["decision latency", "function execution latency"]):
-                color = self.COLORS['YELLOW']
-
-        # Apply the color to the format string
-        formatter = logging.Formatter(color + format_str + self.COLORS['RESET'], datefmt='%H:%M:%S')
-        return formatter.format(record)
+# Configure Flask and SocketIO
+app = Flask(__name__, static_folder="./static", static_url_path="/")
+socketio = SocketIO(app)
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -79,7 +27,7 @@ logger.setLevel(logging.INFO)
 
 # Create console handler with the custom formatter
 console_handler = logging.StreamHandler()
-console_handler.setFormatter(ColorFormatter())
+console_handler.setFormatter(CustomFormatter(socketio=socketio))
 logger.addHandler(console_handler)
 
 # Remove any existing handlers from the root logger to avoid duplicate messages
@@ -161,7 +109,7 @@ Remember: ANY phrase indicating you're about to look something up MUST be done t
 """
 VOICE = "aura-asteria-en"
 
-USER_AUDIO_SAMPLE_RATE = 16000
+USER_AUDIO_SAMPLE_RATE = 48000
 USER_AUDIO_SECS_PER_CHUNK = 0.05
 USER_AUDIO_SAMPLES_PER_CHUNK = round(USER_AUDIO_SAMPLE_RATE * USER_AUDIO_SECS_PER_CHUNK)
 
@@ -193,11 +141,15 @@ SETTINGS = {
     },
     "context": {
         "messages": [
-            {"role": "assistant", "content": "Hello! I'm Sarah from TechStyle customer service. How can I help you today?"}
+            {
+                "role": "assistant",
+                "content": "Hello! I'm Sarah from TechStyle customer service. How can I help you today?",
+            }
         ],
-        "replay": True
-    }
+        "replay": True,
+    },
 }
+
 
 class VoiceAgent:
     def __init__(self):
@@ -208,6 +160,8 @@ class VoiceAgent:
         self.loop = None
         self.audio = None
         self.stream = None
+        self.input_device_id = None
+        self.output_device_id = None
 
     def set_loop(self, loop):
         self.loop = loop
@@ -241,8 +195,7 @@ class VoiceAgent:
         if self.is_running and self.loop and not self.loop.is_closed():
             try:
                 future = asyncio.run_coroutine_threadsafe(
-                    self.mic_audio_queue.put(input_data),
-                    self.loop
+                    self.mic_audio_queue.put(input_data), self.loop
                 )
                 future.result(timeout=1)  # Add timeout to prevent blocking
             except Exception as e:
@@ -255,15 +208,23 @@ class VoiceAgent:
 
             # List available input devices
             info = self.audio.get_host_api_info_by_index(0)
-            numdevices = info.get('deviceCount')
+            numdevices = info.get("deviceCount")
             input_device_index = None
 
             for i in range(0, numdevices):
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
-                if device_info.get('maxInputChannels') > 0:
+                if device_info.get("maxInputChannels") > 0:
                     logger.info(f"Input Device {i}: {device_info.get('name')}")
-                    input_device_index = i
-                    break
+                    # Use selected device if available
+                    if (
+                        self.input_device_id
+                        and str(device_info.get("deviceId")) == self.input_device_id
+                    ):
+                        input_device_index = i
+                        break
+                    # Otherwise use first available device
+                    elif input_device_index is None:
+                        input_device_index = i
 
             if input_device_index is None:
                 raise Exception("No input device found")
@@ -329,7 +290,7 @@ class VoiceAgent:
                             self.speaker.stop()
                         elif message_type == "ConversationText":
                             # Emit the conversation text to the client
-                            socketio.emit('conversation_update', message_json)
+                            socketio.emit("conversation_update", message_json)
 
                             if message_json.get("role") == "user":
                                 last_user_message = current_time
@@ -340,10 +301,14 @@ class VoiceAgent:
                         elif message_type == "FunctionCalling":
                             if in_function_chain and last_function_response_time:
                                 latency = current_time - last_function_response_time
-                                logger.info(f"LLM Decision Latency (chain): {latency:.3f}s")
+                                logger.info(
+                                    f"LLM Decision Latency (chain): {latency:.3f}s"
+                                )
                             elif last_user_message:
                                 latency = current_time - last_user_message
-                                logger.info(f"LLM Decision Latency (initial): {latency:.3f}s")
+                                logger.info(
+                                    f"LLM Decision Latency (initial): {latency:.3f}s"
+                                )
                                 in_function_chain = True
 
                         elif message_type == "FunctionCallRequest":
@@ -358,7 +323,9 @@ class VoiceAgent:
                             try:
                                 func = FUNCTION_MAP.get(function_name)
                                 if not func:
-                                    raise ValueError(f"Function {function_name} not found")
+                                    raise ValueError(
+                                        f"Function {function_name} not found"
+                                    )
 
                                 # Special handling for functions that need websocket
                                 if function_name in ["agent_filler", "end_call"]:
@@ -373,15 +340,19 @@ class VoiceAgent:
                                         response = {
                                             "type": "FunctionCallResponse",
                                             "function_call_id": function_call_id,
-                                            "output": json.dumps(function_response)
+                                            "output": json.dumps(function_response),
                                         }
                                         await self.ws.send(json.dumps(response))
-                                        logger.info(f"Function response sent: {json.dumps(function_response)}")
+                                        logger.info(
+                                            f"Function response sent: {json.dumps(function_response)}"
+                                        )
 
                                         # Update the last function response time
                                         last_function_response_time = time.time()
                                         # Then just inject the message and continue
-                                        await inject_agent_message(self.ws, inject_message)
+                                        await inject_agent_message(
+                                            self.ws, inject_message
+                                        )
                                         continue
 
                                     elif function_name == "end_call":
@@ -394,16 +365,20 @@ class VoiceAgent:
                                         response = {
                                             "type": "FunctionCallResponse",
                                             "function_call_id": function_call_id,
-                                            "output": json.dumps(function_response)
+                                            "output": json.dumps(function_response),
                                         }
                                         await self.ws.send(json.dumps(response))
-                                        logger.info(f"Function response sent: {json.dumps(function_response)}")
+                                        logger.info(
+                                            f"Function response sent: {json.dumps(function_response)}"
+                                        )
 
                                         # Update the last function response time
                                         last_function_response_time = time.time()
 
                                         # Then wait for farewell sequence to complete
-                                        await wait_for_farewell_completion(self.ws, self.speaker, inject_message)
+                                        await wait_for_farewell_completion(
+                                            self.ws, self.speaker, inject_message
+                                        )
 
                                         # Finally send the close message and exit
                                         logger.info(f"Sending ws close message")
@@ -414,16 +389,20 @@ class VoiceAgent:
                                     result = await func(parameters)
 
                                 execution_time = time.time() - start_time
-                                logger.info(f"Function Execution Latency: {execution_time:.3f}s")
+                                logger.info(
+                                    f"Function Execution Latency: {execution_time:.3f}s"
+                                )
 
                                 # Send the response back
                                 response = {
                                     "type": "FunctionCallResponse",
                                     "function_call_id": function_call_id,
-                                    "output": json.dumps(result)
+                                    "output": json.dumps(result),
                                 }
                                 await self.ws.send(json.dumps(response))
-                                logger.info(f"Function response sent: {json.dumps(result)}")
+                                logger.info(
+                                    f"Function response sent: {json.dumps(result)}"
+                                )
 
                                 # Update the last function response time
                                 last_function_response_time = time.time()
@@ -434,12 +413,14 @@ class VoiceAgent:
                                 response = {
                                     "type": "FunctionCallResponse",
                                     "function_call_id": function_call_id,
-                                    "output": json.dumps(result)
+                                    "output": json.dumps(result),
                                 }
                                 await self.ws.send(json.dumps(response))
 
                         elif message_type == "Welcome":
-                            logger.info(f"Connected with session ID: {message_json.get('session_id')}")
+                            logger.info(
+                                f"Connected with session ID: {message_json.get('session_id')}"
+                            )
                         elif message_type == "CloseConnection":
                             logger.info("Closing connection...")
                             await self.ws.close()
@@ -469,6 +450,7 @@ class VoiceAgent:
             self.cleanup()
             if self.ws:
                 await self.ws.close()
+
 
 class Speaker:
     def __init__(self):
@@ -513,6 +495,7 @@ class Speaker:
                 except janus.QueueEmpty:
                     break
 
+
 def _play(audio_out, stream, stop):
     while not stop.is_set():
         try:
@@ -521,10 +504,12 @@ def _play(audio_out, stream, stop):
         except queue.Empty:
             pass
 
+
 async def inject_agent_message(ws, inject_message):
     """Simple helper to inject an agent message."""
     logger.info(f"Sending InjectAgentMessage: {json.dumps(inject_message)}")
     await ws.send(json.dumps(inject_message))
+
 
 async def close_websocket_with_timeout(ws, timeout=5):
     """Close websocket with timeout to avoid hanging if no close frame is received."""
@@ -532,6 +517,7 @@ async def close_websocket_with_timeout(ws, timeout=5):
         await asyncio.wait_for(ws.close(), timeout=timeout)
     except Exception as e:
         logger.error(f"Error during websocket closure: {e}")
+
 
 async def wait_for_farewell_completion(ws, speaker, inject_message):
     """Wait for the farewell message to be spoken completely by the agent."""
@@ -549,10 +535,11 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
         try:
             message_json = json.loads(message)
             logger.info(f"Server: {message}")
-            if (message_json.get("type") == "AgentStartedSpeaking" or
-                (message_json.get("type") == "ConversationText" and
-                 message_json.get("role") == "assistant" and
-                 message_json.get("content") == inject_message["message"])):
+            if message_json.get("type") == "AgentStartedSpeaking" or (
+                message_json.get("type") == "ConversationText"
+                and message_json.get("role") == "assistant"
+                and message_json.get("content") == inject_message["message"]
+            ):
                 speaking_started = True
         except json.JSONDecodeError:
             continue
@@ -576,16 +563,17 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
     # Give audio time to play completely
     await asyncio.sleep(3.5)
 
-# Configure Flask and SocketIO
-app = Flask(__name__, static_folder="./static", static_url_path="/")
-socketio = SocketIO(app)
 
 # Flask routes
-@app.route('/')
+@app.route("/")
 def index():
-    return render_template('index.html')
+    # Get the sample data from MOCK_DATA
+    sample_data = MOCK_DATA.get("sample_data", [])
+    return render_template("index.html", sample_data=sample_data)
+
 
 voice_agent = None
+
 
 def run_async_voice_agent():
     try:
@@ -613,7 +601,9 @@ def run_async_voice_agent():
 
                 # Allow cancelled tasks to complete
                 if pending:
-                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                    loop.run_until_complete(
+                        asyncio.gather(*pending, return_exceptions=True)
+                    )
 
                 loop.run_until_complete(loop.shutdown_asyncgens())
             finally:
@@ -621,15 +611,20 @@ def run_async_voice_agent():
     except Exception as e:
         logger.error(f"Error in voice agent thread setup: {e}")
 
-@socketio.on('start_voice_agent')
-def handle_start_voice_agent():
+
+@socketio.on("start_voice_agent")
+def handle_start_voice_agent(data=None):
     global voice_agent
     if voice_agent is None:
         voice_agent = VoiceAgent()
+        if data:
+            voice_agent.input_device_id = data.get("inputDeviceId")
+            voice_agent.output_device_id = data.get("outputDeviceId")
         # Start the voice agent in a background thread
         socketio.start_background_task(target=run_async_voice_agent)
 
-@socketio.on('stop_voice_agent')
+
+@socketio.on("stop_voice_agent")
 def handle_stop_voice_agent():
     global voice_agent
     if voice_agent:
@@ -643,5 +638,16 @@ def handle_stop_voice_agent():
                 logger.error(f"Error stopping voice agent: {e}")
         voice_agent = None
 
+
 if __name__ == "__main__":
+    print("\n" + "=" * 60)
+    print("🚀 Voice Agent Demo Starting!")
+    print("=" * 60)
+    print("\n1. Open this link in your browser to start the demo:")
+    print("   http://127.0.0.1:5000")
+    print("\n2. Click 'Start Voice Agent' when the page loads")
+    print("\n3. Speak with the agent using your microphone")
+    print("\nPress Ctrl+C to stop the server\n")
+    print("=" * 60 + "\n")
+
     socketio.run(app, debug=True)
