@@ -640,4 +640,14 @@ def handle_stop_voice_agent():
 
 
 if __name__ == "__main__":
+    print("\n" + "=" * 60)
+    print("🚀 Voice Agent Demo Starting!")
+    print("=" * 60)
+    print("\n1. Open this link in your browser to start the demo:")
+    print("   http://127.0.0.1:5000")
+    print("\n2. Click 'Start Voice Agent' when the page loads")
+    print("\n3. Speak with the agent using your microphone")
+    print("\nPress Ctrl+C to stop the server\n")
+    print("=" * 60 + "\n")
+
     socketio.run(app, debug=True)
