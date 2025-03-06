@@ -10,7 +10,7 @@ WORKDIR /app
 
 # Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install -r requirements.txt gunicorn eventlet
 
 # Copy project files
 COPY . .
@@ -18,5 +18,5 @@ COPY . .
 # Expose port 5000
 EXPOSE 5000
 
-# Run the application
-CMD ["python", "client.py"] 
+# Run with gunicorn
+CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5000", "client:app"] 
