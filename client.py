@@ -89,23 +89,33 @@ class VoiceAgent:
             info = self.audio.get_host_api_info_by_index(0)
             numdevices = info.get("deviceCount")
             logger.info(f"Number of devices: {numdevices}")
-            input_device_index = None
-
+            logger.info(f"Selected input device index from frontend: {self.input_device_id}")
+            
+            # Log all available input devices
+            available_devices = []
             for i in range(0, numdevices):
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
+                    available_devices.append(i)
                     logger.info(f"Input Device {i}: {device_info.get('name')}")
-                    # Use selected device if available
-                    if (
-                        self.input_device_id
-                        and str(device_info.get("deviceId")) == self.input_device_id
-                    ):
-                        input_device_index = i
-                        break
-                    # Otherwise use first available device
-                    elif input_device_index is None:
-                        input_device_index = i
-            input_device_index = 14
+            
+            # Default to pipewire (index 13) if available
+            input_device_index = 13 if 13 in available_devices else None
+            
+            # If a specific device index was provided from the frontend, use it
+            if self.input_device_id and self.input_device_id.isdigit():
+                requested_index = int(self.input_device_id)
+                # Verify the requested index is valid
+                if requested_index in available_devices:
+                    input_device_index = requested_index
+                    logger.info(f"Using selected device index: {input_device_index}")
+                else:
+                    logger.warning(f"Requested device index {requested_index} not available, using default")
+            
+            # If still no device selected, use first available
+            if input_device_index is None and available_devices:
+                input_device_index = available_devices[0]
+                logger.info(f"Using first available device index: {input_device_index}")
 
             if input_device_index is None:
                 raise Exception("No input device found")
@@ -446,12 +456,40 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
     await asyncio.sleep(3.5)
 
 
+# Get available audio devices
+def get_audio_devices():
+    try:
+        audio = pyaudio.PyAudio()
+        info = audio.get_host_api_info_by_index(0)
+        numdevices = info.get("deviceCount")
+        
+        input_devices = []
+        for i in range(0, numdevices):
+            device_info = audio.get_device_info_by_host_api_device_index(0, i)
+            if device_info.get("maxInputChannels") > 0:
+                input_devices.append({
+                    "index": i,
+                    "name": device_info.get("name")
+                })
+        
+        audio.terminate()
+        return input_devices
+    except Exception as e:
+        logger.error(f"Error getting audio devices: {e}")
+        return []
+
 # Flask routes
 @app.route("/")
 def index():
     # Get the sample data from MOCK_DATA
     sample_data = MOCK_DATA.get("sample_data", [])
     return render_template("index.html", sample_data=sample_data)
+
+@app.route("/audio-devices")
+def audio_devices():
+    # Get available audio devices
+    devices = get_audio_devices()
+    return {"devices": devices}
 
 @app.route("/industries")
 def get_industries():

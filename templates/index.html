@@ -120,35 +120,51 @@
         let currentIndustryName = 'Tech Support'; // Default industry name
 
         // Populate audio devices
-        async function loadAudioDevices() {
-            try {
-                // Request permission to access audio devices
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                
-                // Get the list of devices
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                
-                // Stop the temporary stream
-                stream.getTracks().forEach(track => track.stop());
-                
-                // Clear existing options
-                inputSelect.innerHTML = '';
-                
-                // Add input devices
-                const inputDevices = devices.filter(device => device.kind === 'audioinput');
-                inputDevices.forEach(device => {
-                    const option = document.createElement('option');
-                    option.value = device.deviceId;
-                    option.text = device.label || `Microphone ${inputSelect.length + 1}`;
-                    inputSelect.appendChild(option);
-                });
-
-                console.log(`Found ${inputDevices.length} input devices`);
-            } catch (err) {
-                console.error('Error loading audio devices:', err);
-                statusDiv.textContent = 'Error: Could not access audio devices';
-            }
+async function loadAudioDevices() {
+    try {
+        // Request permission to access audio devices for the browser
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+        
+        // Clear existing options
+        inputSelect.innerHTML = '';
+        
+        // First add a "Default" option
+        const defaultOption = document.createElement('option');
+        defaultOption.value = "";
+        defaultOption.text = "Default (System)";
+        inputSelect.appendChild(defaultOption);
+        
+        // Fetch actual PyAudio devices from the backend
+        const response = await fetch('/audio-devices');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        
+        const data = await response.json();
+        console.log('Backend audio devices:', data.devices);
+        
+        // Add the backend PyAudio devices
+        if (data.devices && data.devices.length > 0) {
+            data.devices.forEach(device => {
+                const option = document.createElement('option');
+                option.value = device.index.toString();
+                option.text = `${device.name} (Index: ${device.index})`;
+                inputSelect.appendChild(option);
+                
+                // If this is pipewire, select it by default
+                if (device.name.toLowerCase().includes('pipewire')) {
+                    option.selected = true;
+                }
+            });
+        }
+        
+        console.log(`Found ${data.devices.length} input devices from backend`);
+    } catch (err) {
+        console.error('Error loading audio devices:', err);
+        statusDiv.textContent = 'Error: Could not access audio devices';
+    }
+}
 
         // Load devices initially and when devices change
         navigator.mediaDevices.addEventListener('devicechange', loadAudioDevices);
