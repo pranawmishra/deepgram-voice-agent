@@ -127,12 +127,12 @@ class AgentTemplates:
     PROMPT_TEMPLATE = PROMPT_TEMPLATE
 
     def __init__(self, industry="tech_support"):
-        self.who = None
-        self.agent_voice = None
-        self.personality = None
-        self.company = None
-        self.first_message = None
-        self.capabilities = None
+        self.who = ""
+        self.agent_voice = ""
+        self.personality = ""
+        self.company = ""
+        self.first_message = ""
+        self.capabilities = ""
 
         self.industry = industry
 
@@ -149,6 +149,14 @@ class AgentTemplates:
         match self.industry:
             case "tech_support":
                 self.tech_support()
+            case "healthcare":
+                self.healthcare()
+            case "banking":
+                self.banking()
+            case "pharmaceuticals":
+                self.pharmaceuticals()
+            case "retail":
+                self.retail()
 
         self.first_message = f"Hello! I'm {self.who} from {self.company} customer service. {self.capabilities} How can I help you today?"
 
@@ -163,7 +171,64 @@ class AgentTemplates:
         self.company = "TechStyle"
         self.agent_voice = "aura-2-thalia-en"
 
-        self.personality = "You are Sarah, a friendly and professional customer service representative for TechStyle, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries."
+        self.personality = f"You are {self.who}, a friendly and professional customer service representative for {self.company}, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries."
 
         self.capabilities = "I'd love to help you with your order or appointment."
+        
+    def healthcare(self):
+        self.who = "Emma"
+        self.company = "HealthFirst"
+        self.agent_voice = "aura-2-andromeda-en"
+
+        self.personality = f"You are {self.who}, a compassionate and knowledgeable healthcare assistant for {self.company}, a leading healthcare provider. Your role is to assist patients with appointments, medical inquiries, and general health information."
+
+        self.capabilities = "I can help you schedule appointments or answer questions about our services."
+        
+    def banking(self):
+        self.who = "Michael"
+        self.company = "SecureBank"
+        self.agent_voice = "aura-2-apollo-en"
+
+        self.personality = f"You are {self.who}, a professional and trustworthy banking representative for {self.company}, a secure financial institution. Your role is to assist customers with account inquiries, transactions, and financial services."
+
+        self.capabilities = "I can assist you with your account or any banking services you need."
+        
+    def pharmaceuticals(self):
+        self.who = "Olivia"
+        self.company = "MedLine"
+        self.agent_voice = "aura-2-helena-en"
+
+        self.personality = f"You are {self.who}, a professional and trustworthy pharmaceutical representative for {self.company}, a secure pharmaceutical company. Your role is to assist customers with account inquiries, transactions, and appointments. You MAY NOT provide medical advice."
+
+        self.capabilities = "I can assist you with your account or appointments."
+        
+    def retail(self):
+        self.who = "Daniel"
+        self.company = "StyleMart"
+        self.agent_voice = "aura-2-aries-en"
+
+        self.personality = f"You are {self.who}, a friendly and attentive retail associate for {self.company}, a trendy clothing and accessories store. Your role is to assist customers with product inquiries, orders, and style recommendations."
+
+        self.capabilities = "I can help you find the perfect item or check on your order status."
+
+    def travel(self):
+        self.who = "John"
+        self.company = "TravelTech"
+        self.agent_voice = "aura-2-arcas-en"
+
+        self.personality = f"You are {self.who}, a friendly and professional customer service representative for {self.company}, a tech-forward travel agency. Your role is to assist customers with travel bookings, appointments, and general inquiries."
+
+        self.capabilities = "I'd love to help you with your travel bookings or appointments."
+    
+    @staticmethod
+    def get_available_industries():
+        """Return a dictionary of available industries with display names"""
+        return {
+            "tech_support": "Tech Support",
+            "healthcare": "Healthcare",
+            "banking": "Banking",
+            "pharmaceuticals": "Pharmaceuticals",
+            "retail": "Retail",
+            "travel": "Travel"
+        }
         

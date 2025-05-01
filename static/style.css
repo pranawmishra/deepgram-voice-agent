@@ -105,6 +105,49 @@ body:not(.dark-mode) {
     transition: background-color 0.3s, transform 0.2s;
 }
 
+.current-industry {
+    width: 150px;
+    padding: 8px;
+    margin-top: 10px;
+    text-align: center;
+    font-size: 14px;
+    color: var(--text-color-dark);
+    background-color: var(--item-bg-dark);
+    border-radius: 5px;
+    transition: all 0.3s;
+}
+
+body:not(.dark-mode) .current-industry {
+    color: var(--text-color-light);
+    background-color: var(--item-bg-light);
+}
+
+.current-industry span {
+    font-weight: bold;
+}
+
+.industry-button {
+    width: 150px;
+    padding: 10px;
+    border-radius: 5px;
+    background-color: #4a9eff;
+    border: none;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.industry-button:hover {
+    background-color: #3d8be0;
+    transform: scale(1.05);
+}
+
+.industry-button:active {
+    transform: scale(0.95);
+}
+
 .mic-button:hover {
     background-color: #3d918e;
     transform: scale(1.05);
@@ -489,4 +532,92 @@ body.dark-mode .device-select select {
 body.dark-mode .device-select select option {
     background-color: var(--item-bg-dark);
     color: var(--text-color-dark);
+}
+
+/* Industry Selection Popup Styles */
+.popup-overlay {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    justify-content: center;
+    align-items: center;
+}
+
+.popup-content {
+    background-color: var(--column-bg-dark);
+    border-radius: 8px;
+    padding: 20px;
+    width: 300px;
+    max-width: 90%;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    color: var(--text-color-dark);
+    transition: all 0.3s;
+}
+
+body:not(.dark-mode) .popup-content {
+    background-color: var(--column-bg-light);
+    color: var(--text-color-light);
+}
+
+.popup-content h3 {
+    margin-top: 0;
+    text-align: center;
+    margin-bottom: 15px;
+}
+
+.industry-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin-bottom: 15px;
+}
+
+.industry-item {
+    padding: 10px 15px;
+    margin-bottom: 5px;
+    background-color: var(--item-bg-dark);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.2s;
+}
+
+body:not(.dark-mode) .industry-item {
+    background-color: var(--item-bg-light);
+}
+
+.industry-item:hover {
+    transform: translateX(5px);
+}
+
+.industry-item.selected {
+    border-left: 3px solid #4a9eff;
+    font-weight: bold;
+}
+
+.popup-buttons {
+    display: flex;
+    justify-content: center;
+}
+
+.popup-button {
+    padding: 8px 15px;
+    border-radius: 4px;
+    background-color: #4a9eff;
+    border: none;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s, transform 0.2s;
+}
+
+.popup-button:hover {
+    background-color: #3d8be0;
+    transform: scale(1.05);
+}
+
+.popup-button:active {
+    transform: scale(0.95);
 }

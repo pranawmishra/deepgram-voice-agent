@@ -453,6 +453,11 @@ def index():
     sample_data = MOCK_DATA.get("sample_data", [])
     return render_template("index.html", sample_data=sample_data)
 
+@app.route("/industries")
+def get_industries():
+    # Get available industries from AgentTemplates
+    return AgentTemplates.get_available_industries()
+
 
 voice_agent = None
 
@@ -498,7 +503,9 @@ def run_async_voice_agent():
 def handle_start_voice_agent(data=None):
     global voice_agent
     if voice_agent is None:
-        voice_agent = VoiceAgent()
+        # Get industry from data or default to tech_support
+        industry = data.get("industry", "tech_support") if data else "tech_support"
+        voice_agent = VoiceAgent(industry=industry)
         if data:
             voice_agent.input_device_id = data.get("inputDeviceId")
             voice_agent.output_device_id = data.get("outputDeviceId")
