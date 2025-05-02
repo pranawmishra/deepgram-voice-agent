@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
 import pyaudio
 import asyncio
@@ -10,6 +10,7 @@ import janus
 import queue
 import sys
 import time
+import requests
 from datetime import datetime
 from common.agent_functions import FUNCTION_MAP
 from common.agent_templates import AgentTemplates
@@ -496,6 +497,56 @@ def get_industries():
     # Get available industries from AgentTemplates
     return AgentTemplates.get_available_industries()
 
+@app.route("/tts-models")
+def get_tts_models():
+    # Get TTS models from Deepgram API
+    try:
+        dg_api_key = os.environ.get("DEEPGRAM_API_KEY")
+        if not dg_api_key:
+            return jsonify({"error": "DEEPGRAM_API_KEY not set"}), 500
+            
+        response = requests.get(
+            "https://api.deepgram.com/v1/models",
+            headers={"Authorization": f"Token {dg_api_key}"}
+        )
+        
+        if response.status_code != 200:
+            return jsonify({"error": f"API request failed with status {response.status_code}"}), 500
+            
+        data = response.json()
+        
+        # Process TTS models
+        formatted_models = []
+        
+        # Check if 'tts' key exists in the response
+        if "tts" in data:
+            # Filter for only aura-2 models
+            for model in data["tts"]:
+                if model.get("architecture") == "aura-2":
+                    # Extract language from languages array if available
+                    language = "en"
+                    if model.get("languages") and len(model.get("languages")) > 0:
+                        language = model["languages"][0]
+                        
+                    # Extract metadata for additional information
+                    metadata = model.get("metadata", {})
+                    accent = metadata.get("accent", "")
+                    tags = ", ".join(metadata.get("tags", []))
+                    
+                    formatted_models.append({
+                        "name": model.get("canonical_name", model.get("name")),
+                        "display_name": model.get("name"),
+                        "language": language,
+                        "accent": accent,
+                        "tags": tags,
+                        "description": f"{accent} accent. {tags}"
+                    })
+        
+        return jsonify({"models": formatted_models})
+    except Exception as e:
+        logger.error(f"Error fetching TTS models: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 voice_agent = None
 
@@ -547,6 +598,17 @@ def handle_start_voice_agent(data=None):
         if data:
             voice_agent.input_device_id = data.get("inputDeviceId")
             voice_agent.output_device_id = data.get("outputDeviceId")
+            # If a voice model is provided, use it instead of the default
+            if data.get("voiceModel"):
+                voice_agent.agent_templates.agent_voice = data.get("voiceModel")
+                # Update the settings with the selected voice model
+                voice_agent.agent_templates.settings["agent"]["speak"]["model"] = data.get("voiceModel")
+                # Update the agent name based on the voice model
+                if data.get("voiceName"):
+                    voice_agent.agent_templates.who = data.get("voiceName")
+                    # Update the first message with the new name
+                    voice_agent.agent_templates.first_message = f"Hello! I'm {voice_agent.agent_templates.who} from {voice_agent.agent_templates.company} customer service. {voice_agent.agent_templates.capabilities} How can I help you today?"
+                    voice_agent.agent_templates.settings["context"]["messages"][0]["content"] = voice_agent.agent_templates.first_message
         # Start the voice agent in a background thread
         socketio.start_background_task(target=run_async_voice_agent)
 
