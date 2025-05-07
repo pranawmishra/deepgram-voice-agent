@@ -76,9 +76,8 @@ Remember: ANY phrase indicating you're about to look something up MUST be done t
 """
 VOICE = "aura-2-thalia-en"
 
-FIRST_MESSAGE = (
-    "Hello! I'm Sarah from TechStyle customer service. How can I help you today?"
-)
+# this gets updated by the agent template
+FIRST_MESSAGE = ""
 
 # audio settings
 USER_AUDIO_SAMPLE_RATE = 48000
@@ -105,13 +104,9 @@ AUDIO_SETTINGS = {
 LISTEN_SETTINGS = {"provider": {"type": "deepgram", "model": "nova-3"}}
 
 THINK_SETTINGS = {
-    "provider": {
-        "type": "open_ai",
-        "model": "gpt-4o-mini",
-        "temperature": 0.7
-    },
+    "provider": {"type": "open_ai", "model": "gpt-4o-mini", "temperature": 0.7},
     "prompt": PROMPT_TEMPLATE,
-    "functions": FUNCTION_DEFINITIONS
+    "functions": FUNCTION_DEFINITIONS,
 }
 
 SPEAK_SETTINGS = {"provider": {"type": "deepgram", "model": VOICE}}
@@ -121,14 +116,10 @@ AGENT_SETTINGS = {
     "listen": LISTEN_SETTINGS,
     "think": THINK_SETTINGS,
     "speak": SPEAK_SETTINGS,
-    "greeting": FIRST_MESSAGE
+    "greeting": FIRST_MESSAGE,
 }
 
-SETTINGS = {
-    "type": "Settings",
-    "audio": AUDIO_SETTINGS,
-    "agent": AGENT_SETTINGS
-}
+SETTINGS = {"type": "Settings", "audio": AUDIO_SETTINGS, "agent": AGENT_SETTINGS}
 
 
 class AgentTemplates:
