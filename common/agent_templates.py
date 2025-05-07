@@ -74,12 +74,11 @@ Correct pattern to follow:
 
 Remember: ANY phrase indicating you're about to look something up MUST be done through the agent_filler function, never through direct response text.
 """
-
-VOICE_AGENT_URL = "wss://agent.deepgram.com/agent"
-
 VOICE = "aura-2-thalia-en"
 
-FIRST_MESSAGE = "Hello! I'm Sarah from TechStyle customer service. How can I help you today?"
+FIRST_MESSAGE = (
+    "Hello! I'm Sarah from TechStyle customer service. How can I help you today?"
+)
 
 # audio settings
 USER_AUDIO_SAMPLE_RATE = 48000
@@ -89,39 +88,48 @@ USER_AUDIO_SAMPLES_PER_CHUNK = round(USER_AUDIO_SAMPLE_RATE * USER_AUDIO_SECS_PE
 AGENT_AUDIO_SAMPLE_RATE = 16000
 AGENT_AUDIO_BYTES_PER_SEC = 2 * AGENT_AUDIO_SAMPLE_RATE
 
-SETTINGS = {
-    "type": "SettingsConfiguration",
-    "audio": {
-        "input": {
-            "encoding": "linear16",
-            "sample_rate": USER_AUDIO_SAMPLE_RATE,
-        },
-        "output": {
-            "encoding": "linear16",
-            "sample_rate": AGENT_AUDIO_SAMPLE_RATE,
-            "container": "none",
-        },
+VOICE_AGENT_URL = "wss://agent.deepgram.com/v1/agent/converse"
+
+AUDIO_SETTINGS = {
+    "input": {
+        "encoding": "linear16",
+        "sample_rate": USER_AUDIO_SAMPLE_RATE,
     },
-    "agent": {
-        "listen": {"model": "nova-3"},
-        "think": {
-            "provider": {"type": "open_ai"},
-            "model": "gpt-4o-mini",
-            "instructions": PROMPT_TEMPLATE,
-            "functions": FUNCTION_DEFINITIONS,
-        },
-        "speak": {"model": VOICE},
-    },
-    "context": {
-        "messages": [
-            {
-                "role": "assistant",
-                "content": FIRST_MESSAGE,
-            }
-        ],
-        "replay": True,
+    "output": {
+        "encoding": "linear16",
+        "sample_rate": AGENT_AUDIO_SAMPLE_RATE,
+        "container": "none",
     },
 }
+
+LISTEN_SETTINGS = {"provider": {"type": "deepgram", "model": "nova-3"}}
+
+THINK_SETTINGS = {
+    "provider": {
+        "type": "open_ai",
+        "model": "gpt-4o-mini",
+        "temperature": 0.7
+    },
+    "prompt": PROMPT_TEMPLATE,
+    "functions": FUNCTION_DEFINITIONS
+}
+
+SPEAK_SETTINGS = {"provider": {"type": "deepgram", "model": VOICE}}
+
+AGENT_SETTINGS = {
+    "language": "en",
+    "listen": LISTEN_SETTINGS,
+    "think": THINK_SETTINGS,
+    "speak": SPEAK_SETTINGS,
+    "greeting": FIRST_MESSAGE
+}
+
+SETTINGS = {
+    "type": "Settings",
+    "audio": AUDIO_SETTINGS,
+    "agent": AGENT_SETTINGS
+}
+
 
 class AgentTemplates:
     PROMPT_TEMPLATE = PROMPT_TEMPLATE
@@ -136,7 +144,9 @@ class AgentTemplates:
 
         self.industry = industry
 
-        self.prompt = self.PROMPT_TEMPLATE.format(current_date=datetime.now().strftime("%A, %B %d, %Y"))
+        self.prompt = self.PROMPT_TEMPLATE.format(
+            current_date=datetime.now().strftime("%A, %B %d, %Y")
+        )
 
         self.voice_agent_url = VOICE_AGENT_URL
         self.settings = SETTINGS
@@ -160,12 +170,12 @@ class AgentTemplates:
 
         self.first_message = f"Hello! I'm {self.who} from {self.company} customer service. {self.capabilities} How can I help you today?"
 
-        self.settings["agent"]["speak"]["model"] = self.agent_voice
-        self.settings["agent"]["think"]["instructions"] = self.prompt
-        self.settings["context"]["messages"][0]["content"] = self.first_message
+        self.settings["agent"]["speak"]["provider"]["model"] = self.agent_voice
+        self.settings["agent"]["think"]["prompt"] = self.prompt
+        self.settings["agent"]["greeting"] = self.first_message
 
         self.prompt = self.personality + "\n\n" + self.prompt
-        
+
     def tech_support(self):
         self.who = "Sarah"
         self.company = "TechStyle"
@@ -174,7 +184,7 @@ class AgentTemplates:
         self.personality = f"You are {self.who}, a friendly and professional customer service representative for {self.company}, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries."
 
         self.capabilities = "I'd love to help you with your order or appointment."
-        
+
     def healthcare(self):
         self.who = "Emma"
         self.company = "HealthFirst"
@@ -183,7 +193,7 @@ class AgentTemplates:
         self.personality = f"You are {self.who}, a compassionate and knowledgeable healthcare assistant for {self.company}, a leading healthcare provider. Your role is to assist patients with appointments, medical inquiries, and general health information."
 
         self.capabilities = "I can help you schedule appointments or answer questions about our services."
-        
+
     def banking(self):
         self.who = "Michael"
         self.company = "SecureBank"
@@ -191,8 +201,10 @@ class AgentTemplates:
 
         self.personality = f"You are {self.who}, a professional and trustworthy banking representative for {self.company}, a secure financial institution. Your role is to assist customers with account inquiries, transactions, and financial services."
 
-        self.capabilities = "I can assist you with your account or any banking services you need."
-        
+        self.capabilities = (
+            "I can assist you with your account or any banking services you need."
+        )
+
     def pharmaceuticals(self):
         self.who = "Olivia"
         self.company = "MedLine"
@@ -201,7 +213,7 @@ class AgentTemplates:
         self.personality = f"You are {self.who}, a professional and trustworthy pharmaceutical representative for {self.company}, a secure pharmaceutical company. Your role is to assist customers with account inquiries, transactions, and appointments. You MAY NOT provide medical advice."
 
         self.capabilities = "I can assist you with your account or appointments."
-        
+
     def retail(self):
         self.who = "Daniel"
         self.company = "StyleMart"
@@ -209,7 +221,9 @@ class AgentTemplates:
 
         self.personality = f"You are {self.who}, a friendly and attentive retail associate for {self.company}, a trendy clothing and accessories store. Your role is to assist customers with product inquiries, orders, and style recommendations."
 
-        self.capabilities = "I can help you find the perfect item or check on your order status."
+        self.capabilities = (
+            "I can help you find the perfect item or check on your order status."
+        )
 
     def travel(self):
         self.who = "John"
@@ -218,8 +232,10 @@ class AgentTemplates:
 
         self.personality = f"You are {self.who}, a friendly and professional customer service representative for {self.company}, a tech-forward travel agency. Your role is to assist customers with travel bookings, appointments, and general inquiries."
 
-        self.capabilities = "I'd love to help you with your travel bookings or appointments."
-    
+        self.capabilities = (
+            "I'd love to help you with your travel bookings or appointments."
+        )
+
     @staticmethod
     def get_available_industries():
         """Return a dictionary of available industries with display names"""
@@ -229,6 +245,5 @@ class AgentTemplates:
             "banking": "Banking",
             "pharmaceuticals": "Pharmaceuticals",
             "retail": "Retail",
-            "travel": "Travel"
+            "travel": "Travel",
         }
-        

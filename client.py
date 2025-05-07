@@ -90,8 +90,10 @@ class VoiceAgent:
             info = self.audio.get_host_api_info_by_index(0)
             numdevices = info.get("deviceCount")
             logger.info(f"Number of devices: {numdevices}")
-            logger.info(f"Selected input device index from frontend: {self.input_device_id}")
-            
+            logger.info(
+                f"Selected input device index from frontend: {self.input_device_id}"
+            )
+
             # Log all available input devices
             available_devices = []
             for i in range(0, numdevices):
@@ -99,10 +101,10 @@ class VoiceAgent:
                 if device_info.get("maxInputChannels") > 0:
                     available_devices.append(i)
                     logger.info(f"Input Device {i}: {device_info.get('name')}")
-            
+
             # Default to pipewire (index 13) if available
             input_device_index = 13 if 13 in available_devices else None
-            
+
             # If a specific device index was provided from the frontend, use it
             if self.input_device_id and self.input_device_id.isdigit():
                 requested_index = int(self.input_device_id)
@@ -111,8 +113,10 @@ class VoiceAgent:
                     input_device_index = requested_index
                     logger.info(f"Using selected device index: {input_device_index}")
                 else:
-                    logger.warning(f"Requested device index {requested_index} not available, using default")
-            
+                    logger.warning(
+                        f"Requested device index {requested_index} not available, using default"
+                    )
+
             # If still no device selected, use first available
             if input_device_index is None and available_devices:
                 input_device_index = available_devices[0]
@@ -350,7 +354,9 @@ class Speaker:
         self._stream = None
         self._thread = None
         self._stop = None
-        self.agent_audio_sample_rate = agent_audio_sample_rate if agent_audio_sample_rate else 16000
+        self.agent_audio_sample_rate = (
+            agent_audio_sample_rate if agent_audio_sample_rate else 16000
+        )
 
     def __enter__(self):
         audio = pyaudio.PyAudio()
@@ -463,21 +469,19 @@ def get_audio_devices():
         audio = pyaudio.PyAudio()
         info = audio.get_host_api_info_by_index(0)
         numdevices = info.get("deviceCount")
-        
+
         input_devices = []
         for i in range(0, numdevices):
             device_info = audio.get_device_info_by_host_api_device_index(0, i)
             if device_info.get("maxInputChannels") > 0:
-                input_devices.append({
-                    "index": i,
-                    "name": device_info.get("name")
-                })
-        
+                input_devices.append({"index": i, "name": device_info.get("name")})
+
         audio.terminate()
         return input_devices
     except Exception as e:
         logger.error(f"Error getting audio devices: {e}")
         return []
+
 
 # Flask routes
 @app.route("/")
@@ -486,16 +490,19 @@ def index():
     sample_data = MOCK_DATA.get("sample_data", [])
     return render_template("index.html", sample_data=sample_data)
 
+
 @app.route("/audio-devices")
 def audio_devices():
     # Get available audio devices
     devices = get_audio_devices()
     return {"devices": devices}
 
+
 @app.route("/industries")
 def get_industries():
     # Get available industries from AgentTemplates
     return AgentTemplates.get_available_industries()
+
 
 @app.route("/tts-models")
 def get_tts_models():
@@ -504,20 +511,25 @@ def get_tts_models():
         dg_api_key = os.environ.get("DEEPGRAM_API_KEY")
         if not dg_api_key:
             return jsonify({"error": "DEEPGRAM_API_KEY not set"}), 500
-            
+
         response = requests.get(
             "https://api.deepgram.com/v1/models",
-            headers={"Authorization": f"Token {dg_api_key}"}
+            headers={"Authorization": f"Token {dg_api_key}"},
         )
-        
+
         if response.status_code != 200:
-            return jsonify({"error": f"API request failed with status {response.status_code}"}), 500
-            
+            return (
+                jsonify(
+                    {"error": f"API request failed with status {response.status_code}"}
+                ),
+                500,
+            )
+
         data = response.json()
-        
+
         # Process TTS models
         formatted_models = []
-        
+
         # Check if 'tts' key exists in the response
         if "tts" in data:
             # Filter for only aura-2 models
@@ -527,21 +539,23 @@ def get_tts_models():
                     language = "en"
                     if model.get("languages") and len(model.get("languages")) > 0:
                         language = model["languages"][0]
-                        
+
                     # Extract metadata for additional information
                     metadata = model.get("metadata", {})
                     accent = metadata.get("accent", "")
                     tags = ", ".join(metadata.get("tags", []))
-                    
-                    formatted_models.append({
-                        "name": model.get("canonical_name", model.get("name")),
-                        "display_name": model.get("name"),
-                        "language": language,
-                        "accent": accent,
-                        "tags": tags,
-                        "description": f"{accent} accent. {tags}"
-                    })
-        
+
+                    formatted_models.append(
+                        {
+                            "name": model.get("canonical_name", model.get("name")),
+                            "display_name": model.get("name"),
+                            "language": language,
+                            "accent": accent,
+                            "tags": tags,
+                            "description": f"{accent} accent. {tags}",
+                        }
+                    )
+
         return jsonify({"models": formatted_models})
     except Exception as e:
         logger.error(f"Error fetching TTS models: {e}")
@@ -602,13 +616,17 @@ def handle_start_voice_agent(data=None):
             if data.get("voiceModel"):
                 voice_agent.agent_templates.agent_voice = data.get("voiceModel")
                 # Update the settings with the selected voice model
-                voice_agent.agent_templates.settings["agent"]["speak"]["model"] = data.get("voiceModel")
+                voice_agent.agent_templates.settings["agent"]["speak"]["provider"][
+                    "model"
+                ] = data.get("voiceModel")
                 # Update the agent name based on the voice model
                 if data.get("voiceName"):
                     voice_agent.agent_templates.who = data.get("voiceName")
                     # Update the first message with the new name
                     voice_agent.agent_templates.first_message = f"Hello! I'm {voice_agent.agent_templates.who} from {voice_agent.agent_templates.company} customer service. {voice_agent.agent_templates.capabilities} How can I help you today?"
-                    voice_agent.agent_templates.settings["context"]["messages"][0]["content"] = voice_agent.agent_templates.first_message
+                    voice_agent.agent_templates.settings["agent"]["greeting"] = (
+                        voice_agent.agent_templates.first_message
+                    )
         # Start the voice agent in a background thread
         socketio.start_background_task(target=run_async_voice_agent)
 
