@@ -101,15 +101,29 @@ AUDIO_SETTINGS = {
     },
 }
 
-LISTEN_SETTINGS = {"provider": {"type": "deepgram", "model": "nova-3"}}
+LISTEN_SETTINGS = {
+    "provider": {
+        "type": "deepgram",
+        "model": "nova-3",
+    }
+}
 
 THINK_SETTINGS = {
-    "provider": {"type": "open_ai", "model": "gpt-4o-mini", "temperature": 0.7},
+    "provider": {
+        "type": "open_ai",
+        "model": "gpt-4o-mini",
+        "temperature": 0.7,
+    },
     "prompt": PROMPT_TEMPLATE,
     "functions": FUNCTION_DEFINITIONS,
 }
 
-SPEAK_SETTINGS = {"provider": {"type": "deepgram", "model": VOICE}}
+SPEAK_SETTINGS = {
+    "provider": {
+        "type": "deepgram",
+        "model": VOICE,
+    }
+}
 
 AGENT_SETTINGS = {
     "language": "en",
@@ -125,9 +139,14 @@ SETTINGS = {"type": "Settings", "audio": AUDIO_SETTINGS, "agent": AGENT_SETTINGS
 class AgentTemplates:
     PROMPT_TEMPLATE = PROMPT_TEMPLATE
 
-    def __init__(self, industry="tech_support"):
-        self.who = ""
-        self.agent_voice = ""
+    def __init__(
+        self,
+        industry="tech_support",
+        voiceModel="aura-2-thalia-en",
+        voiceName="",
+    ):
+        self.voiceName = voiceName
+        self.voiceModel = voiceModel
         self.personality = ""
         self.company = ""
         self.first_message = ""
@@ -159,69 +178,89 @@ class AgentTemplates:
             case "retail":
                 self.retail()
 
-        self.first_message = f"Hello! I'm {self.who} from {self.company} customer service. {self.capabilities} How can I help you today?"
+        self.first_message = f"Hello! I'm {self.voiceName} from {self.company} customer service. {self.capabilities} How can I help you today?"
 
-        self.settings["agent"]["speak"]["provider"]["model"] = self.agent_voice
+        self.settings["agent"]["speak"]["provider"]["model"] = self.voiceModel
         self.settings["agent"]["think"]["prompt"] = self.prompt
         self.settings["agent"]["greeting"] = self.first_message
 
         self.prompt = self.personality + "\n\n" + self.prompt
 
-    def tech_support(self):
-        self.who = "Sarah"
-        self.company = "TechStyle"
-        self.agent_voice = "aura-2-thalia-en"
+    def tech_support(
+        self, company="TechStyle", agent_voice="aura-2-thalia-en", voiceName=""
+    ):
+        if voiceName == "":
+            voiceName = self.get_voice_name_from_model(agent_voice)
+        self.voiceName = voiceName
+        self.company = company
+        self.voiceModel = agent_voice
 
-        self.personality = f"You are {self.who}, a friendly and professional customer service representative for {self.company}, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries."
+        self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries."
 
         self.capabilities = "I'd love to help you with your order or appointment."
 
-    def healthcare(self):
-        self.who = "Emma"
-        self.company = "HealthFirst"
-        self.agent_voice = "aura-2-andromeda-en"
+    def healthcare(
+        self, company="HealthFirst", agent_voice="aura-2-andromeda-en", voiceName=""
+    ):
+        if voiceName == "":
+            voiceName = self.get_voice_name_from_model(agent_voice)
+        self.voiceName = voiceName
+        self.company = company
+        self.voiceModel = agent_voice
 
-        self.personality = f"You are {self.who}, a compassionate and knowledgeable healthcare assistant for {self.company}, a leading healthcare provider. Your role is to assist patients with appointments, medical inquiries, and general health information."
+        self.personality = f"You are {self.voiceName}, a compassionate and knowledgeable healthcare assistant for {self.company}, a leading healthcare provider. Your role is to assist patients with appointments, medical inquiries, and general health information."
 
         self.capabilities = "I can help you schedule appointments or answer questions about our services."
 
-    def banking(self):
-        self.who = "Michael"
-        self.company = "SecureBank"
-        self.agent_voice = "aura-2-apollo-en"
+    def banking(
+        self, company="SecureBank", agent_voice="aura-2-apollo-en", voiceName=""
+    ):
+        if voiceName == "":
+            voiceName = self.get_voice_name_from_model(agent_voice)
+        self.voiceName = voiceName
+        self.company = company
+        self.voiceModel = agent_voice
 
-        self.personality = f"You are {self.who}, a professional and trustworthy banking representative for {self.company}, a secure financial institution. Your role is to assist customers with account inquiries, transactions, and financial services."
+        self.personality = f"You are {self.voiceName}, a professional and trustworthy banking representative for {self.company}, a secure financial institution. Your role is to assist customers with account inquiries, transactions, and financial services."
 
         self.capabilities = (
             "I can assist you with your account or any banking services you need."
         )
 
-    def pharmaceuticals(self):
-        self.who = "Olivia"
-        self.company = "MedLine"
-        self.agent_voice = "aura-2-helena-en"
+    def pharmaceuticals(
+        self, company="MedLine", agent_voice="aura-2-helena-en", voiceName=""
+    ):
+        if voiceName == "":
+            voiceName = self.get_voice_name_from_model(agent_voice)
+        self.voiceName = voiceName
+        self.company = company
+        self.voiceModel = agent_voice
 
-        self.personality = f"You are {self.who}, a professional and trustworthy pharmaceutical representative for {self.company}, a secure pharmaceutical company. Your role is to assist customers with account inquiries, transactions, and appointments. You MAY NOT provide medical advice."
+        self.personality = f"You are {self.voiceName}, a professional and trustworthy pharmaceutical representative for {self.company}, a secure pharmaceutical company. Your role is to assist customers with account inquiries, transactions, and appointments. You MAY NOT provide medical advice."
 
         self.capabilities = "I can assist you with your account or appointments."
 
-    def retail(self):
-        self.who = "Daniel"
-        self.company = "StyleMart"
-        self.agent_voice = "aura-2-aries-en"
+    def retail(self, company="StyleMart", agent_voice="aura-2-aries-en", voiceName=""):
+        if voiceName == "":
+            voiceName = self.get_voice_name_from_model(agent_voice)
+        self.voiceName = voiceName
+        self.company = company
+        self.voiceModel = agent_voice
 
-        self.personality = f"You are {self.who}, a friendly and attentive retail associate for {self.company}, a trendy clothing and accessories store. Your role is to assist customers with product inquiries, orders, and style recommendations."
+        self.personality = f"You are {self.voiceName}, a friendly and attentive retail associate for {self.company}, a trendy clothing and accessories store. Your role is to assist customers with product inquiries, orders, and style recommendations."
 
         self.capabilities = (
             "I can help you find the perfect item or check on your order status."
         )
 
-    def travel(self):
-        self.who = "John"
-        self.company = "TravelTech"
-        self.agent_voice = "aura-2-arcas-en"
+    def travel(self, company="TravelTech", agent_voice="aura-2-arcas-en", voiceName=""):
+        if voiceName == "":
+            voiceName = self.get_voice_name_from_model(agent_voice)
+        self.voiceName = voiceName
+        self.company = company
+        self.voiceModel = agent_voice
 
-        self.personality = f"You are {self.who}, a friendly and professional customer service representative for {self.company}, a tech-forward travel agency. Your role is to assist customers with travel bookings, appointments, and general inquiries."
+        self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, a tech-forward travel agency. Your role is to assist customers with travel bookings, appointments, and general inquiries."
 
         self.capabilities = (
             "I'd love to help you with your travel bookings or appointments."
@@ -238,3 +277,6 @@ class AgentTemplates:
             "retail": "Retail",
             "travel": "Travel",
         }
+
+    def get_voice_name_from_model(self, model):
+        return model.split("-")[2].split("-")[0].capitalize()

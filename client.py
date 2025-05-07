@@ -37,7 +37,12 @@ logging.getLogger().handlers = []
 
 
 class VoiceAgent:
-    def __init__(self, industry="tech_support"):
+    def __init__(
+        self,
+        industry="tech_support",
+        voiceModel="aura-2-thalia-en",
+        voiceName="",
+    ):
         self.mic_audio_queue = asyncio.Queue()
         self.speaker = None
         self.ws = None
@@ -47,7 +52,7 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
-        self.agent_templates = AgentTemplates(industry)
+        self.agent_templates = AgentTemplates(industry, voiceName, voiceModel)
 
     def set_loop(self, loop):
         self.loop = loop
@@ -605,28 +610,23 @@ def run_async_voice_agent():
 @socketio.on("start_voice_agent")
 def handle_start_voice_agent(data=None):
     global voice_agent
+    logger.info(f"Starting voice agent with data: {data}")
     if voice_agent is None:
         # Get industry from data or default to tech_support
         industry = data.get("industry", "tech_support") if data else "tech_support"
-        voice_agent = VoiceAgent(industry=industry)
+        voiceModel = (
+            data.get("voiceModel", "aura-2-thalia-en") if data else "aura-2-thalia-en"
+        )
+        # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
+        voiceName = data.get("voiceName", "") if data else ""
+        voice_agent = VoiceAgent(
+            industry=industry,
+            voiceModel=voiceModel,
+            voiceName=voiceName,
+        )
         if data:
             voice_agent.input_device_id = data.get("inputDeviceId")
             voice_agent.output_device_id = data.get("outputDeviceId")
-            # If a voice model is provided, use it instead of the default
-            if data.get("voiceModel"):
-                voice_agent.agent_templates.agent_voice = data.get("voiceModel")
-                # Update the settings with the selected voice model
-                voice_agent.agent_templates.settings["agent"]["speak"]["provider"][
-                    "model"
-                ] = data.get("voiceModel")
-                # Update the agent name based on the voice model
-                if data.get("voiceName"):
-                    voice_agent.agent_templates.who = data.get("voiceName")
-                    # Update the first message with the new name
-                    voice_agent.agent_templates.first_message = f"Hello! I'm {voice_agent.agent_templates.who} from {voice_agent.agent_templates.company} customer service. {voice_agent.agent_templates.capabilities} How can I help you today?"
-                    voice_agent.agent_templates.settings["agent"]["greeting"] = (
-                        voice_agent.agent_templates.first_message
-                    )
         # Start the voice agent in a background thread
         socketio.start_background_task(target=run_async_voice_agent)
 
