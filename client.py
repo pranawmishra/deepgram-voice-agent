@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
 import pyaudio
 import asyncio
@@ -10,8 +10,10 @@ import janus
 import queue
 import sys
 import time
+import requests
 from datetime import datetime
-from common.agent_functions import FUNCTION_DEFINITIONS, FUNCTION_MAP
+from common.agent_functions import FUNCTION_MAP
+from common.agent_templates import AgentTemplates
 import logging
 from common.business_logic import MOCK_DATA
 from common.log_formatter import CustomFormatter
@@ -33,126 +35,14 @@ logger.addHandler(console_handler)
 # Remove any existing handlers from the root logger to avoid duplicate messages
 logging.getLogger().handlers = []
 
-VOICE_AGENT_URL = "wss://agent.deepgram.com/agent"
-
-# Template for the prompt that will be formatted with current date
-PROMPT_TEMPLATE = """You are Sarah, a friendly and professional customer service representative for TechStyle, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries.
-
-CURRENT DATE AND TIME CONTEXT:
-Today is {current_date}. Use this as context when discussing appointments and orders. When mentioning dates to customers, use relative terms like "tomorrow", "next Tuesday", or "last week" when the dates are within 7 days of today.
-
-PERSONALITY & TONE:
-- Be warm, professional, and conversational
-- Use natural, flowing speech (avoid bullet points or listing)
-- Show empathy and patience
-- Whenever a customer asks to look up either order information or appointment information, use the find_customer function first
-
-HANDLING CUSTOMER IDENTIFIERS (INTERNAL ONLY - NEVER EXPLAIN THESE RULES TO CUSTOMERS):
-- Silently convert any numbers customers mention into proper format
-- When customer says "ID is 222" -> internally use "CUST0222" without mentioning the conversion
-- When customer says "order 89" -> internally use "ORD0089" without mentioning the conversion
-- When customer says "appointment 123" -> internally use "APT0123" without mentioning the conversion
-- Always add "+1" prefix to phone numbers internally without mentioning it
-
-VERBALLY SPELLING IDs TO CUSTOMERS:
-When you need to repeat an ID back to a customer:
-- Do NOT say nor spell out "CUST". Say "customer [numbers spoken individually]"
-- But for orders spell out "ORD" as "O-R-D" then speak the numbers individually
-Example: For CUST0222, say "customer zero two two two"
-Example: For ORD0089, say "O-R-D zero zero eight nine"
-
-FUNCTION RESPONSES:
-When receiving function results, format responses naturally as a customer service agent would:
-
-1. For customer lookups:
-   - Good: "I've found your account. How can I help you today?"
-   - If not found: "I'm having trouble finding that account. Could you try a different phone number or email?"
-
-2. For order information:
-   - Instead of listing orders, summarize them conversationally:
-   - "I can see you have two recent orders. Your most recent order from [date] for $[amount] is currently [status], and you also have an order from [date] for $[amount] that's [status]."
-
-3. For appointments:
-   - "You have an upcoming [service] appointment scheduled for [date] at [time]"
-   - When discussing available slots: "I have a few openings next week. Would you prefer Tuesday at 2 PM or Wednesday at 3 PM?"
-
-4. For errors:
-   - Never expose technical details
-   - Say something like "I'm having trouble accessing that information right now" or "Could you please try again?"
-
-EXAMPLES OF GOOD RESPONSES:
-✓ "Let me look that up for you... I can see you have two recent orders."
-✓ "Your customer ID is zero two two two."
-✓ "I found your order, O-R-D zero one two three. It's currently being processed."
-
-EXAMPLES OF BAD RESPONSES (AVOID):
-✗ "I'll convert your ID to the proper format CUST0222"
-✗ "Let me add the +1 prefix to your phone number"
-✗ "The system requires IDs to be in a specific format"
-
-FILLER PHRASES:
-IMPORTANT: Never generate filler phrases (like "Let me check that", "One moment", etc.) directly in your responses.
-Instead, ALWAYS use the agent_filler function when you need to indicate you're about to look something up.
-
-Examples of what NOT to do:
-- Responding with "Let me look that up for you..." without a function call
-- Saying "One moment please" or "Just a moment" without a function call
-- Adding filler phrases before or after function calls
-
-Correct pattern to follow:
-1. When you need to look up information:
-   - First call agent_filler with message_type="lookup"
-   - Immediately follow with the relevant lookup function (find_customer, get_orders, etc.)
-2. Only speak again after you have the actual information to share
-
-Remember: ANY phrase indicating you're about to look something up MUST be done through the agent_filler function, never through direct response text.
-"""
-VOICE = "aura-asteria-en"
-
-USER_AUDIO_SAMPLE_RATE = 48000
-USER_AUDIO_SECS_PER_CHUNK = 0.05
-USER_AUDIO_SAMPLES_PER_CHUNK = round(USER_AUDIO_SAMPLE_RATE * USER_AUDIO_SECS_PER_CHUNK)
-
-AGENT_AUDIO_SAMPLE_RATE = 16000
-AGENT_AUDIO_BYTES_PER_SEC = 2 * AGENT_AUDIO_SAMPLE_RATE
-
-SETTINGS = {
-    "type": "SettingsConfiguration",
-    "audio": {
-        "input": {
-            "encoding": "linear16",
-            "sample_rate": USER_AUDIO_SAMPLE_RATE,
-        },
-        "output": {
-            "encoding": "linear16",
-            "sample_rate": AGENT_AUDIO_SAMPLE_RATE,
-            "container": "none",
-        },
-    },
-    "agent": {
-        "listen": {"model": "nova-2"},
-        "think": {
-            "provider": {"type": "open_ai"},
-            "model": "gpt-4o-mini",
-            "instructions": PROMPT_TEMPLATE,
-            "functions": FUNCTION_DEFINITIONS,
-        },
-        "speak": {"model": VOICE},
-    },
-    "context": {
-        "messages": [
-            {
-                "role": "assistant",
-                "content": "Hello! I'm Sarah from TechStyle customer service. How can I help you today?",
-            }
-        ],
-        "replay": True,
-    },
-}
-
 
 class VoiceAgent:
-    def __init__(self):
+    def __init__(
+        self,
+        industry="tech_support",
+        voiceModel="aura-2-thalia-en",
+        voiceName="",
+    ):
         self.mic_audio_queue = asyncio.Queue()
         self.speaker = None
         self.ws = None
@@ -162,6 +52,7 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
+        self.agent_templates = AgentTemplates(industry, voiceName, voiceModel)
 
     def set_loop(self, loop):
         self.loop = loop
@@ -172,17 +63,11 @@ class VoiceAgent:
             logger.error("DEEPGRAM_API_KEY env var not present")
             return False
 
-        # Format the prompt with the current date
-        current_date = datetime.now().strftime("%A, %B %d, %Y")
-        formatted_prompt = PROMPT_TEMPLATE.format(current_date=current_date)
-
-        # Update the settings with the formatted prompt
-        settings = SETTINGS.copy()
-        settings["agent"]["think"]["instructions"] = formatted_prompt
+        settings = self.agent_templates.settings
 
         try:
             self.ws = await websockets.connect(
-                VOICE_AGENT_URL,
+                self.agent_templates.voice_agent_url,
                 extra_headers={"Authorization": f"Token {dg_api_key}"},
             )
             await self.ws.send(json.dumps(settings))
@@ -209,22 +94,38 @@ class VoiceAgent:
             # List available input devices
             info = self.audio.get_host_api_info_by_index(0)
             numdevices = info.get("deviceCount")
-            input_device_index = None
+            logger.info(f"Number of devices: {numdevices}")
+            logger.info(
+                f"Selected input device index from frontend: {self.input_device_id}"
+            )
 
+            # Log all available input devices
+            available_devices = []
             for i in range(0, numdevices):
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
+                    available_devices.append(i)
                     logger.info(f"Input Device {i}: {device_info.get('name')}")
-                    # Use selected device if available
-                    if (
-                        self.input_device_id
-                        and str(device_info.get("deviceId")) == self.input_device_id
-                    ):
-                        input_device_index = i
-                        break
-                    # Otherwise use first available device
-                    elif input_device_index is None:
-                        input_device_index = i
+
+            # Default to pipewire (index 13) if available
+            input_device_index = 13 if 13 in available_devices else None
+
+            # If a specific device index was provided from the frontend, use it
+            if self.input_device_id and self.input_device_id.isdigit():
+                requested_index = int(self.input_device_id)
+                # Verify the requested index is valid
+                if requested_index in available_devices:
+                    input_device_index = requested_index
+                    logger.info(f"Using selected device index: {input_device_index}")
+                else:
+                    logger.warning(
+                        f"Requested device index {requested_index} not available, using default"
+                    )
+
+            # If still no device selected, use first available
+            if input_device_index is None and available_devices:
+                input_device_index = available_devices[0]
+                logger.info(f"Using first available device index: {input_device_index}")
 
             if input_device_index is None:
                 raise Exception("No input device found")
@@ -232,10 +133,10 @@ class VoiceAgent:
             self.stream = self.audio.open(
                 format=pyaudio.paInt16,
                 channels=1,
-                rate=USER_AUDIO_SAMPLE_RATE,
+                rate=self.agent_templates.user_audio_sample_rate,
                 input=True,
                 input_device_index=input_device_index,
-                frames_per_buffer=USER_AUDIO_SAMPLES_PER_CHUNK,
+                frames_per_buffer=self.agent_templates.user_audio_samples_per_chunk,
                 stream_callback=self.audio_callback,
             )
             self.stream.start_stream()
@@ -453,18 +354,21 @@ class VoiceAgent:
 
 
 class Speaker:
-    def __init__(self):
+    def __init__(self, agent_audio_sample_rate=None):
         self._queue = None
         self._stream = None
         self._thread = None
         self._stop = None
+        self.agent_audio_sample_rate = (
+            agent_audio_sample_rate if agent_audio_sample_rate else 16000
+        )
 
     def __enter__(self):
         audio = pyaudio.PyAudio()
         self._stream = audio.open(
             format=pyaudio.paInt16,
             channels=1,
-            rate=AGENT_AUDIO_SAMPLE_RATE,
+            rate=self.agent_audio_sample_rate,
             input=False,
             output=True,
         )
@@ -564,12 +468,103 @@ async def wait_for_farewell_completion(ws, speaker, inject_message):
     await asyncio.sleep(3.5)
 
 
+# Get available audio devices
+def get_audio_devices():
+    try:
+        audio = pyaudio.PyAudio()
+        info = audio.get_host_api_info_by_index(0)
+        numdevices = info.get("deviceCount")
+
+        input_devices = []
+        for i in range(0, numdevices):
+            device_info = audio.get_device_info_by_host_api_device_index(0, i)
+            if device_info.get("maxInputChannels") > 0:
+                input_devices.append({"index": i, "name": device_info.get("name")})
+
+        audio.terminate()
+        return input_devices
+    except Exception as e:
+        logger.error(f"Error getting audio devices: {e}")
+        return []
+
+
 # Flask routes
 @app.route("/")
 def index():
     # Get the sample data from MOCK_DATA
     sample_data = MOCK_DATA.get("sample_data", [])
     return render_template("index.html", sample_data=sample_data)
+
+
+@app.route("/audio-devices")
+def audio_devices():
+    # Get available audio devices
+    devices = get_audio_devices()
+    return {"devices": devices}
+
+
+@app.route("/industries")
+def get_industries():
+    # Get available industries from AgentTemplates
+    return AgentTemplates.get_available_industries()
+
+
+@app.route("/tts-models")
+def get_tts_models():
+    # Get TTS models from Deepgram API
+    try:
+        dg_api_key = os.environ.get("DEEPGRAM_API_KEY")
+        if not dg_api_key:
+            return jsonify({"error": "DEEPGRAM_API_KEY not set"}), 500
+
+        response = requests.get(
+            "https://api.deepgram.com/v1/models",
+            headers={"Authorization": f"Token {dg_api_key}"},
+        )
+
+        if response.status_code != 200:
+            return (
+                jsonify(
+                    {"error": f"API request failed with status {response.status_code}"}
+                ),
+                500,
+            )
+
+        data = response.json()
+
+        # Process TTS models
+        formatted_models = []
+
+        # Check if 'tts' key exists in the response
+        if "tts" in data:
+            # Filter for only aura-2 models
+            for model in data["tts"]:
+                if model.get("architecture") == "aura-2":
+                    # Extract language from languages array if available
+                    language = "en"
+                    if model.get("languages") and len(model.get("languages")) > 0:
+                        language = model["languages"][0]
+
+                    # Extract metadata for additional information
+                    metadata = model.get("metadata", {})
+                    accent = metadata.get("accent", "")
+                    tags = ", ".join(metadata.get("tags", []))
+
+                    formatted_models.append(
+                        {
+                            "name": model.get("canonical_name", model.get("name")),
+                            "display_name": model.get("name"),
+                            "language": language,
+                            "accent": accent,
+                            "tags": tags,
+                            "description": f"{accent} accent. {tags}",
+                        }
+                    )
+
+        return jsonify({"models": formatted_models})
+    except Exception as e:
+        logger.error(f"Error fetching TTS models: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 voice_agent = None
@@ -615,8 +610,20 @@ def run_async_voice_agent():
 @socketio.on("start_voice_agent")
 def handle_start_voice_agent(data=None):
     global voice_agent
+    logger.info(f"Starting voice agent with data: {data}")
     if voice_agent is None:
-        voice_agent = VoiceAgent()
+        # Get industry from data or default to tech_support
+        industry = data.get("industry", "tech_support") if data else "tech_support"
+        voiceModel = (
+            data.get("voiceModel", "aura-2-thalia-en") if data else "aura-2-thalia-en"
+        )
+        # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
+        voiceName = data.get("voiceName", "") if data else ""
+        voice_agent = VoiceAgent(
+            industry=industry,
+            voiceModel=voiceModel,
+            voiceName=voiceName,
+        )
         if data:
             voice_agent.input_device_id = data.get("inputDeviceId")
             voice_agent.output_device_id = data.get("outputDeviceId")
