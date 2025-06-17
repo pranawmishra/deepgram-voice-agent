@@ -52,7 +52,7 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
-        self.agent_templates = AgentTemplates(industry, voiceName, voiceModel)
+        self.agent_templates = AgentTemplates(industry, voiceModel, voiceName)
 
     def set_loop(self, loop):
         self.loop = loop
@@ -105,10 +105,6 @@ class VoiceAgent:
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
                     available_devices.append(i)
-                    logger.info(f"Input Device {i}: {device_info.get('name')}")
-
-            # Default to pipewire (index 13) if available
-            input_device_index = 13 if 13 in available_devices else None
 
             # If a specific device index was provided from the frontend, use it
             if self.input_device_id and self.input_device_id.isdigit():
