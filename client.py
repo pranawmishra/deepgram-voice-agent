@@ -52,7 +52,7 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
-        self.agent_templates = AgentTemplates(industry, voiceName, voiceModel)
+        self.agent_templates = AgentTemplates(industry, voiceModel, voiceName)
 
     def set_loop(self, loop):
         self.loop = loop
@@ -105,10 +105,6 @@ class VoiceAgent:
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
                     available_devices.append(i)
-                    logger.info(f"Input Device {i}: {device_info.get('name')}")
-
-            # Default to pipewire (index 13) if available
-            input_device_index = 13 if 13 in available_devices else None
 
             # If a specific device index was provided from the frontend, use it
             if self.input_device_id and self.input_device_id.isdigit():
@@ -213,9 +209,14 @@ class VoiceAgent:
                                 in_function_chain = True
 
                         elif message_type == "FunctionCallRequest":
-                            function_name = message_json.get("function_name")
-                            function_call_id = message_json.get("function_call_id")
-                            parameters = message_json.get("input", {})
+                            functions = message_json.get("functions")
+                            if len(functions) > 1:
+                                raise NotImplementedError(
+                                    "Multiple functions received in FunctionCallRequest"
+                                )
+                            function_name = functions[0].get("name")
+                            function_call_id = functions[0].get("id")
+                            parameters = json.loads(functions[0].get("arguments", {}))
 
                             logger.info(f"Function call received: {function_name}")
                             logger.info(f"Parameters: {parameters}")
@@ -240,8 +241,9 @@ class VoiceAgent:
                                         # First send the function response
                                         response = {
                                             "type": "FunctionCallResponse",
-                                            "function_call_id": function_call_id,
-                                            "output": json.dumps(function_response),
+                                            "id": function_call_id,
+                                            "name": function_name,
+                                            "content": json.dumps(function_response),
                                         }
                                         await self.ws.send(json.dumps(response))
                                         logger.info(
@@ -265,8 +267,9 @@ class VoiceAgent:
                                         # First send the function response
                                         response = {
                                             "type": "FunctionCallResponse",
-                                            "function_call_id": function_call_id,
-                                            "output": json.dumps(function_response),
+                                            "id": function_call_id,
+                                            "name": function_name,
+                                            "content": json.dumps(function_response),
                                         }
                                         await self.ws.send(json.dumps(response))
                                         logger.info(
@@ -297,8 +300,9 @@ class VoiceAgent:
                                 # Send the response back
                                 response = {
                                     "type": "FunctionCallResponse",
-                                    "function_call_id": function_call_id,
-                                    "output": json.dumps(result),
+                                    "id": function_call_id,
+                                    "name": function_name,
+                                    "content": json.dumps(result),
                                 }
                                 await self.ws.send(json.dumps(response))
                                 logger.info(
@@ -313,8 +317,9 @@ class VoiceAgent:
                                 result = {"error": str(e)}
                                 response = {
                                     "type": "FunctionCallResponse",
-                                    "function_call_id": function_call_id,
-                                    "output": json.dumps(result),
+                                    "id": function_call_id,
+                                    "name": function_name,
+                                    "content": json.dumps(result),
                                 }
                                 await self.ws.send(json.dumps(response))
 
