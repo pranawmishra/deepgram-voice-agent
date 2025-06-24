@@ -789,9 +789,7 @@ async function loadAudioDevices() {
         
         // Audio buffering variables
         let audioBufferingEnabled = true; // Enable buffering for smoother playback
-        let minBufferSize = 3; // Minimum number of chunks to buffer before starting playback
-        let audioBufferTimeout = null; // Timeout for buffer processing
-        let lastPlayTime = 0; // Track when the last audio chunk was played
+        let minBufferSize = 2; // Minimum number of chunks to buffer before starting playback
         
         // Process and play queued audio
         function processAudioOutputQueue() {
