@@ -686,27 +686,28 @@ def handle_audio_data(data):
             if audio_buffer:
                 try:
                     # Convert the binary data to bytes
-                    # Socket.IO binary data comes as a memoryview, so we need to convert it to bytes
+                    # Socket.IO binary data can come as either memoryview or bytes
                     if isinstance(audio_buffer, memoryview):
-                        # This is Int16 data from the browser (already converted from Float32)
-                        # Just convert the memoryview to bytes directly
+                        # Convert memoryview to bytes
                         audio_bytes = audio_buffer.tobytes()
-
+                        
                         # Log detailed info about the first chunk
                         if not hasattr(handle_audio_data, "first_log_done"):
                             import numpy as np
-
                             # Peek at the data to verify it's in the right format
-                            int16_peek = np.frombuffer(
-                                audio_buffer[:20], dtype=np.int16
-                            )
+                            int16_peek = np.frombuffer(audio_buffer[:20], dtype=np.int16)
                             logger.info(f"First few samples: {int16_peek}")
+                    elif isinstance(audio_buffer, bytes):
+                        # Already bytes, use directly
+                        audio_bytes = audio_buffer
                     else:
-                        # Fallback if it's not a memoryview
-                        logger.warning(
-                            f"Unexpected audio buffer type: {type(audio_buffer)}"
-                        )
-                        audio_bytes = bytes(audio_buffer)
+                        # Unexpected type, try to convert and log a warning
+                        logger.warning(f"Unexpected audio buffer type: {type(audio_buffer)}")
+                        try:
+                            audio_bytes = bytes(audio_buffer)
+                        except Exception as e:
+                            logger.error(f"Failed to convert audio buffer to bytes: {e}")
+                            return
 
                     # Log the first time we receive audio data
                     if not hasattr(handle_audio_data, "first_log_done"):
