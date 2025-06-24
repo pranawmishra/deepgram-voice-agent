@@ -39,7 +39,7 @@ logging.getLogger().handlers = []
 class VoiceAgent:
     def __init__(
         self,
-        industry="tech_support",
+        industry="deepgram",
         voiceModel="aura-2-thalia-en",
         voiceName="",
     ):
@@ -52,7 +52,7 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
-        self.agent_templates = AgentTemplates(industry, voiceName, voiceModel)
+        self.agent_templates = AgentTemplates(industry, voiceModel, voiceName)
 
     def set_loop(self, loop):
         self.loop = loop
@@ -105,7 +105,6 @@ class VoiceAgent:
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
                     available_devices.append(i)
-                    logger.info(f"Input Device {i}: {device_info.get('name')}")
 
             # Default to pipewire (index 13) if available
             input_device_index = 13 if 13 in available_devices else None
@@ -612,8 +611,8 @@ def handle_start_voice_agent(data=None):
     global voice_agent
     logger.info(f"Starting voice agent with data: {data}")
     if voice_agent is None:
-        # Get industry from data or default to tech_support
-        industry = data.get("industry", "tech_support") if data else "tech_support"
+        # Get industry from data or default to deepgram
+        industry = data.get("industry", "deepgram") if data else "deepgram"
         voiceModel = (
             data.get("voiceModel", "aura-2-thalia-en") if data else "aura-2-thalia-en"
         )

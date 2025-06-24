@@ -43,3 +43,6 @@ app.db
 # Misc
 mock_data_outputs/
 misc/
+
+# Deepgram docs
+deepgram-docs/
