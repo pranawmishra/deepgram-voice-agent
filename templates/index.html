@@ -470,7 +470,7 @@ async function loadAudioDevices() {
                 try {
                     // Create audio context
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    console.log('AudioContext created with sample rate:', audioContext.sampleRate);
+                    console.log('AudioContext created with input sample rate:', audioContext.sampleRate);
                     
                     // Create microphone source
                     microphone = audioContext.createMediaStreamSource(mediaStream);
@@ -546,6 +546,9 @@ async function loadAudioDevices() {
                 audioContext.close();
                 audioContext = null;
             }
+            
+            // Also stop audio output
+            stopAudioOutput();
         }
 
         function createSpacer(height) {
@@ -728,6 +731,117 @@ async function loadAudioDevices() {
             console.error('Socket error:', error);
             alert('An error occurred. Please check the console for details.');
         });
+        
+        // Handle audio output from the server
+        socket.on('audio_output', (data) => {
+            if (isActive) {
+                playAudioOutput(data.audio, data.sampleRate);
+            }
+        });
+        
+        // Audio output variables
+        let audioOutputContext = null;
+        let audioOutputQueue = [];
+        let isAudioOutputPlaying = false;
+        
+        // Audio output variables
+        let audioOutputSampleRate = 16000; // Default, will be updated from server
+        
+        // Function to play audio output received from the server
+        function playAudioOutput(audioData, sampleRate) {
+            try {
+                // Create audio context if it doesn't exist
+                if (!audioOutputContext) {
+                    audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                // Update sample rate if provided
+                if (sampleRate) {
+                    audioOutputSampleRate = sampleRate;
+                }
+                
+                // Convert the binary audio data to Int16Array (raw PCM format from server)
+                const pcmData = new Int16Array(audioData);
+                
+                // Create a float32 array for the audio buffer
+                const floatData = new Float32Array(pcmData.length);
+                
+                // Convert Int16 PCM to Float32 audio data
+                for (let i = 0; i < pcmData.length; i++) {
+                    // Convert from Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
+                    floatData[i] = pcmData[i] / 32768.0;
+                }
+                
+                // Create an audio buffer with the correct sample rate
+                const audioBuffer = audioOutputContext.createBuffer(1, floatData.length, audioOutputSampleRate);
+                audioBuffer.getChannelData(0).set(floatData);
+                
+                // Add to queue and start playing if not already playing
+                audioOutputQueue.push(audioBuffer);
+                
+                if (!isAudioOutputPlaying) {
+                    processAudioOutputQueue();
+                }
+            } catch (err) {
+                console.error('Error processing audio output:', err);
+            }
+        }
+        
+        // Audio buffering variables
+        let audioBufferingEnabled = true; // Enable buffering for smoother playback
+        let minBufferSize = 3; // Minimum number of chunks to buffer before starting playback
+        let audioBufferTimeout = null; // Timeout for buffer processing
+        let lastPlayTime = 0; // Track when the last audio chunk was played
+        
+        // Process and play queued audio
+        function processAudioOutputQueue() {
+            if (audioOutputQueue.length === 0) {
+                isAudioOutputPlaying = false;
+                return;
+            }
+            
+            // If buffering is enabled and we don't have enough chunks yet, wait for more
+            if (audioBufferingEnabled && audioOutputQueue.length < minBufferSize && !isAudioOutputPlaying) {
+                isAudioOutputPlaying = true; // Mark as playing to prevent multiple buffering starts
+                setTimeout(processAudioOutputQueue, 50); // Check again in 50ms
+                return;
+            }
+            
+            isAudioOutputPlaying = true;
+            const audioBuffer = audioOutputQueue.shift();
+            
+            // Create audio source
+            const source = audioOutputContext.createBufferSource();
+            source.buffer = audioBuffer;
+            
+            // Add a gain node for volume control
+            const gainNode = audioOutputContext.createGain();
+            gainNode.gain.value = 1.0; // Full volume
+            
+            // Connect the nodes
+            source.connect(gainNode);
+            gainNode.connect(audioOutputContext.destination);
+            
+            // Play the audio
+            source.onended = processAudioOutputQueue;
+            source.start(0);
+        }
+        
+        // Clean up audio output resources
+        function stopAudioOutput() {
+            // Clear the queue and reset flags
+            audioOutputQueue = [];
+            isAudioOutputPlaying = false;
+            
+            // Close the audio context to release resources
+            if (audioOutputContext && audioOutputContext.state !== 'closed') {
+                audioOutputContext.close();
+                audioOutputContext = null;
+            }
+            
+            // Reset variables
+            audioOutputSampleRate = 16000;
+        }
 
         showLogsToggle.addEventListener('change', () => {
             logsColumn.style.display = showLogsToggle.checked ? 'flex' : 'none';

@@ -13,7 +13,7 @@ import time
 import requests
 from datetime import datetime
 from common.agent_functions import FUNCTION_MAP
-from common.agent_templates import AgentTemplates
+from common.agent_templates import AgentTemplates, AGENT_AUDIO_SAMPLE_RATE
 import logging
 from common.business_logic import MOCK_DATA
 from common.log_formatter import CustomFormatter
@@ -53,7 +53,8 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
-        self.browser_audio = browser_audio
+        self.browser_audio = browser_audio  # For browser microphone input
+        self.browser_output = browser_audio  # Use same setting for browser output
         self.agent_templates = AgentTemplates(industry, voiceModel, voiceName)
 
     def set_loop(self, loop):
@@ -193,7 +194,7 @@ class VoiceAgent:
 
     async def receiver(self):
         try:
-            self.speaker = Speaker()
+            self.speaker = Speaker(browser_output=self.browser_output)
             last_user_message = None
             last_function_response_time = None
             in_function_chain = False
@@ -376,7 +377,7 @@ class VoiceAgent:
 
 
 class Speaker:
-    def __init__(self, agent_audio_sample_rate=None):
+    def __init__(self, agent_audio_sample_rate=None, browser_output=False):
         self._queue = None
         self._stream = None
         self._thread = None
@@ -384,6 +385,7 @@ class Speaker:
         self.agent_audio_sample_rate = (
             agent_audio_sample_rate if agent_audio_sample_rate else 16000
         )
+        self.browser_output = browser_output
 
     def __enter__(self):
         audio = pyaudio.PyAudio()
@@ -397,7 +399,7 @@ class Speaker:
         self._queue = janus.Queue()
         self._stop = threading.Event()
         self._thread = threading.Thread(
-            target=_play, args=(self._queue, self._stream, self._stop), daemon=True
+            target=_play, args=(self._queue, self._stream, self._stop, self.browser_output), daemon=True
         )
         self._thread.start()
 
@@ -422,11 +424,23 @@ class Speaker:
                     break
 
 
-def _play(audio_out, stream, stop):
+def _play(audio_out, stream, stop, browser_output=False):
     while not stop.is_set():
         try:
             data = audio_out.sync_q.get(True, 0.05)
+            # Play audio through system speakers
             stream.write(data)
+            
+            # If browser output is enabled, send audio to browser via WebSocket
+            if browser_output and socketio:
+                try:
+                    # Send audio data to browser clients with sample rate information
+                    socketio.emit('audio_output', {
+                        'audio': data,
+                        'sampleRate': AGENT_AUDIO_SAMPLE_RATE
+                    })
+                except Exception as e:
+                    logger.error(f"Error sending audio to browser: {e}")
         except queue.Empty:
             pass
 
