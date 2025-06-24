@@ -42,6 +42,7 @@ class VoiceAgent:
         industry="deepgram",
         voiceModel="aura-2-thalia-en",
         voiceName="",
+        browser_audio=False,
     ):
         self.mic_audio_queue = asyncio.Queue()
         self.speaker = None
@@ -52,6 +53,7 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
+        self.browser_audio = browser_audio
         self.agent_templates = AgentTemplates(industry, voiceModel, voiceName)
 
     def set_loop(self, loop):
@@ -164,12 +166,30 @@ class VoiceAgent:
 
     async def sender(self):
         try:
+            # Log when sender starts
+            logger.info(f"Audio sender started (browser_audio={self.browser_audio})")
+
+            # Track if we've logged the first chunk
+            first_chunk = True
+
             while self.is_running:
                 data = await self.mic_audio_queue.get()
                 if self.ws and data:
+                    # Log the first audio chunk we send
+                    if first_chunk:
+                        logger.info(
+                            f"Sending first audio chunk to Deepgram: {len(data)} bytes"
+                        )
+                        first_chunk = False
+
+                    # Send the audio data to Deepgram
                     await self.ws.send(data)
         except Exception as e:
             logger.error(f"Error in sender: {e}")
+            # Print stack trace for debugging
+            import traceback
+
+            logger.error(traceback.format_exc())
 
     async def receiver(self):
         try:
@@ -338,7 +358,10 @@ class VoiceAgent:
 
         self.is_running = True
         try:
-            stream, audio = await self.start_microphone()
+            # Only start the microphone if not using browser audio
+            if not self.browser_audio:
+                stream, audio = await self.start_microphone()
+
             await asyncio.gather(
                 self.sender(),
                 self.receiver(),
@@ -618,10 +641,14 @@ def handle_start_voice_agent(data=None):
         )
         # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
         voiceName = data.get("voiceName", "") if data else ""
+        # Check if browser is handling audio capture
+        browser_audio = data.get("browserAudio", False) if data else False
+
         voice_agent = VoiceAgent(
             industry=industry,
             voiceModel=voiceModel,
             voiceName=voiceName,
+            browser_audio=browser_audio,
         )
         if data:
             voice_agent.input_device_id = data.get("inputDeviceId")
@@ -643,6 +670,66 @@ def handle_stop_voice_agent():
             except Exception as e:
                 logger.error(f"Error stopping voice agent: {e}")
         voice_agent = None
+
+
+@socketio.on("audio_data")
+def handle_audio_data(data):
+    global voice_agent
+    if voice_agent and voice_agent.is_running and voice_agent.browser_audio:
+        try:
+            # Get the audio buffer and sample rate
+            audio_buffer = data.get("audio")
+            sample_rate = data.get(
+                "sampleRate", 44100
+            )  # Default to 44.1kHz if not specified
+
+            if audio_buffer:
+                try:
+                    # Convert the binary data to bytes
+                    # Socket.IO binary data comes as a memoryview, so we need to convert it to bytes
+                    if isinstance(audio_buffer, memoryview):
+                        # This is Int16 data from the browser (already converted from Float32)
+                        # Just convert the memoryview to bytes directly
+                        audio_bytes = audio_buffer.tobytes()
+
+                        # Log detailed info about the first chunk
+                        if not hasattr(handle_audio_data, "first_log_done"):
+                            import numpy as np
+
+                            # Peek at the data to verify it's in the right format
+                            int16_peek = np.frombuffer(
+                                audio_buffer[:20], dtype=np.int16
+                            )
+                            logger.info(f"First few samples: {int16_peek}")
+                    else:
+                        # Fallback if it's not a memoryview
+                        logger.warning(
+                            f"Unexpected audio buffer type: {type(audio_buffer)}"
+                        )
+                        audio_bytes = bytes(audio_buffer)
+
+                    # Log the first time we receive audio data
+                    if not hasattr(handle_audio_data, "first_log_done"):
+                        logger.info(
+                            f"Received first browser audio chunk: {len(audio_bytes)} bytes, sample rate: {sample_rate}Hz"
+                        )
+                        handle_audio_data.first_log_done = True
+
+                    # Put the audio data in the queue for processing
+                    if voice_agent.loop and not voice_agent.loop.is_closed():
+                        asyncio.run_coroutine_threadsafe(
+                            voice_agent.mic_audio_queue.put(audio_bytes),
+                            voice_agent.loop,
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Error converting audio buffer: {e}, type: {type(audio_buffer)}"
+                    )
+                    import traceback
+
+                    logger.error(traceback.format_exc())
+        except Exception as e:
+            logger.error(f"Error processing browser audio data: {e}")
 
 
 if __name__ == "__main__":
