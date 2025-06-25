@@ -732,19 +732,11 @@ async function loadAudioDevices() {
             alert('An error occurred. Please check the console for details.');
         });
         
-        // Handle audio output from the server
-        socket.on('audio_output', (data) => {
-            if (isActive) {
-                playAudioOutput(data.audio, data.sampleRate);
-            }
-        });
-        
         // Audio output variables
         let audioOutputContext = null;
         let audioOutputQueue = [];
         let isAudioOutputPlaying = false;
-        
-        // Audio output variables
+        let nextPlayTime = 0; // Track when the next audio chunk should start
         let audioOutputSampleRate = 16000; // Default, will be updated from server
         
         // Function to play audio output received from the server
@@ -753,6 +745,8 @@ async function loadAudioDevices() {
                 // Create audio context if it doesn't exist
                 if (!audioOutputContext) {
                     audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
+                    // Initialize nextPlayTime to current audio context time
+                    nextPlayTime = audioOutputContext.currentTime;
                 }
                 
                 // Update sample rate if provided
@@ -776,60 +770,61 @@ async function loadAudioDevices() {
                 const audioBuffer = audioOutputContext.createBuffer(1, floatData.length, audioOutputSampleRate);
                 audioBuffer.getChannelData(0).set(floatData);
                 
-                // Add to queue and start playing if not already playing
-                audioOutputQueue.push(audioBuffer);
+                // Schedule the audio buffer for seamless playback
+                scheduleAudioBuffer(audioBuffer);
                 
-                if (!isAudioOutputPlaying) {
-                    processAudioOutputQueue();
-                }
             } catch (err) {
                 console.error('Error processing audio output:', err);
             }
         }
         
-        // Audio buffering variables
-        let audioBufferingEnabled = true; // Enable buffering for smoother playback
-        let minBufferSize = 2; // Minimum number of chunks to buffer before starting playback
-        
-        // Process and play queued audio
-        function processAudioOutputQueue() {
-            if (audioOutputQueue.length === 0) {
-                isAudioOutputPlaying = false;
-                return;
+        // Schedule audio buffer for seamless playback
+        function scheduleAudioBuffer(audioBuffer) {
+            try {
+                // Create audio source
+                const source = audioOutputContext.createBufferSource();
+                source.buffer = audioBuffer;
+                
+                // Add a gain node for volume control
+                const gainNode = audioOutputContext.createGain();
+                gainNode.gain.value = 1.0; // Full volume
+                
+                // Connect the nodes
+                source.connect(gainNode);
+                gainNode.connect(audioOutputContext.destination);
+                
+                // Calculate when this chunk should start playing
+                const currentTime = audioOutputContext.currentTime;
+                const bufferDuration = audioBuffer.duration;
+                
+                // If nextPlayTime is in the past or too close to current time, start immediately
+                if (nextPlayTime <= currentTime + 0.01) {
+                    nextPlayTime = currentTime + 0.01; // Small buffer to prevent glitches
+                }
+                
+                // Schedule the audio to start at the calculated time
+                source.start(nextPlayTime);
+                
+                // Update nextPlayTime for the next chunk
+                nextPlayTime += bufferDuration;
+                
+                // Clean up old scheduled times if they're getting too far ahead
+                const maxLookahead = 1.0; // Maximum 1 second lookahead
+                if (nextPlayTime > currentTime + maxLookahead) {
+                    nextPlayTime = currentTime + 0.1; // Reset with small buffer
+                }
+                
+            } catch (err) {
+                console.error('Error scheduling audio buffer:', err);
+                // Reset timing on error
+                nextPlayTime = audioOutputContext.currentTime;
             }
-            
-            // If buffering is enabled and we don't have enough chunks yet, wait for more
-            if (audioBufferingEnabled && audioOutputQueue.length < minBufferSize && !isAudioOutputPlaying) {
-                isAudioOutputPlaying = true; // Mark as playing to prevent multiple buffering starts
-                setTimeout(processAudioOutputQueue, 50); // Check again in 50ms
-                return;
-            }
-            
-            isAudioOutputPlaying = true;
-            const audioBuffer = audioOutputQueue.shift();
-            
-            // Create audio source
-            const source = audioOutputContext.createBufferSource();
-            source.buffer = audioBuffer;
-            
-            // Add a gain node for volume control
-            const gainNode = audioOutputContext.createGain();
-            gainNode.gain.value = 1.0; // Full volume
-            
-            // Connect the nodes
-            source.connect(gainNode);
-            gainNode.connect(audioOutputContext.destination);
-            
-            // Play the audio
-            source.onended = processAudioOutputQueue;
-            source.start(0);
         }
         
         // Clean up audio output resources
         function stopAudioOutput() {
-            // Clear the queue and reset flags
-            audioOutputQueue = [];
-            isAudioOutputPlaying = false;
+            // Reset timing
+            nextPlayTime = 0;
             
             // Close the audio context to release resources
             if (audioOutputContext && audioOutputContext.state !== 'closed') {
@@ -840,6 +835,12 @@ async function loadAudioDevices() {
             // Reset variables
             audioOutputSampleRate = 16000;
         }
+
+        socket.on('audio_output', (data) => {
+            if (isActive) {
+                playAudioOutput(data.audio, data.sampleRate);
+            }
+        });
 
         showLogsToggle.addEventListener('change', () => {
             logsColumn.style.display = showLogsToggle.checked ? 'flex' : 'none';
