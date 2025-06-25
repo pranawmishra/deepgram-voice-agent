@@ -1,3 +1,4 @@
+
 DEEPGRAM_PROMPT_TEMPLATE = """
 PERSONALITY & TONE:
 - Be warm, professional, and conversational
@@ -17,7 +18,6 @@ Instructions:
 DEEPGRAM DOCUMENTATION:
 {documentation}
 """
-
 # Template for the prompt that will be formatted with current date
 PROMPT_TEMPLATE = """
 

@@ -26,8 +26,6 @@ def read_documentation_files(docs_dir):
             print(f"Error reading {file_path}: {e}")
 
     return documentation
-
-
 VOICE = "aura-2-thalia-en"
 
 # audio settings
@@ -162,7 +160,6 @@ class AgentTemplates:
         self.company = company
         self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, a Voice API company who provides STT and TTS capabilities via API. Your role is to assist potential customers with general inquiries about Deepgram."
         self.capabilities = "I can help you answer questions about Deepgram."
-
     def healthcare(self, company="HealthFirst"):
         self.company = company
         self.personality = f"You are {self.voiceName}, a compassionate and knowledgeable healthcare assistant for {self.company}, a leading healthcare provider. Your role is to assist patients with general information about their appointments and orders."

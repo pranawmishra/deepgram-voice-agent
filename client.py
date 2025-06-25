@@ -108,7 +108,6 @@ class VoiceAgent:
                 device_info = self.audio.get_device_info_by_host_api_device_index(0, i)
                 if device_info.get("maxInputChannels") > 0:
                     available_devices.append(i)
-
             # Default to pipewire (index 13) if available
             input_device_index = 13 if 13 in available_devices else None
 
