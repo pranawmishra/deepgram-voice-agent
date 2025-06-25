@@ -185,6 +185,7 @@ class VoiceAgent:
 
                     # Send the audio data to Deepgram
                     await self.ws.send(data)
+
         except Exception as e:
             logger.error(f"Error in sender: {e}")
             # Print stack trace for debugging
@@ -233,9 +234,14 @@ class VoiceAgent:
                                 in_function_chain = True
 
                         elif message_type == "FunctionCallRequest":
-                            function_name = message_json.get("function_name")
-                            function_call_id = message_json.get("function_call_id")
-                            parameters = message_json.get("input", {})
+                            functions = message_json.get("functions", [])
+                            if len(functions) > 1:
+                                raise NotImplementedError(
+                                    "Multiple functions not supported"
+                                )
+                            function_name = functions[0].get("name")
+                            function_call_id = functions[0].get("id")
+                            parameters = json.loads(functions[0].get("arguments", {}))
 
                             logger.info(f"Function call received: {function_name}")
                             logger.info(f"Parameters: {parameters}")
@@ -260,8 +266,9 @@ class VoiceAgent:
                                         # First send the function response
                                         response = {
                                             "type": "FunctionCallResponse",
-                                            "function_call_id": function_call_id,
-                                            "output": json.dumps(function_response),
+                                            "id": function_call_id,
+                                            "name": function_name,
+                                            "content": json.dumps(function_response),
                                         }
                                         await self.ws.send(json.dumps(response))
                                         logger.info(
@@ -285,8 +292,9 @@ class VoiceAgent:
                                         # First send the function response
                                         response = {
                                             "type": "FunctionCallResponse",
-                                            "function_call_id": function_call_id,
-                                            "output": json.dumps(function_response),
+                                            "id": function_call_id,
+                                            "name": function_name,
+                                            "content": json.dumps(function_response),
                                         }
                                         await self.ws.send(json.dumps(response))
                                         logger.info(
@@ -317,8 +325,9 @@ class VoiceAgent:
                                 # Send the response back
                                 response = {
                                     "type": "FunctionCallResponse",
-                                    "function_call_id": function_call_id,
-                                    "output": json.dumps(result),
+                                    "id": function_call_id,
+                                    "name": function_name,
+                                    "content": json.dumps(result),
                                 }
                                 await self.ws.send(json.dumps(response))
                                 logger.info(
@@ -333,8 +342,9 @@ class VoiceAgent:
                                 result = {"error": str(e)}
                                 response = {
                                     "type": "FunctionCallResponse",
-                                    "function_call_id": function_call_id,
-                                    "output": json.dumps(result),
+                                    "id": function_call_id,
+                                    "name": function_name,
+                                    "content": json.dumps(result),
                                 }
                                 await self.ws.send(json.dumps(response))
 
@@ -399,7 +409,9 @@ class Speaker:
         self._queue = janus.Queue()
         self._stop = threading.Event()
         self._thread = threading.Thread(
-            target=_play, args=(self._queue, self._stream, self._stop, self.browser_output), daemon=True
+            target=_play,
+            args=(self._queue, self._stream, self._stop, self.browser_output),
+            daemon=True,
         )
         self._thread.start()
 
@@ -430,15 +442,15 @@ def _play(audio_out, stream, stop, browser_output=False):
             data = audio_out.sync_q.get(True, 0.05)
             # Play audio through system speakers
             stream.write(data)
-            
+
             # If browser output is enabled, send audio to browser via WebSocket
             if browser_output and socketio:
                 try:
                     # Send audio data to browser clients with sample rate information
-                    socketio.emit('audio_output', {
-                        'audio': data,
-                        'sampleRate': AGENT_AUDIO_SAMPLE_RATE
-                    })
+                    socketio.emit(
+                        "audio_output",
+                        {"audio": data, "sampleRate": AGENT_AUDIO_SAMPLE_RATE},
+                    )
                 except Exception as e:
                     logger.error(f"Error sending audio to browser: {e}")
         except queue.Empty:
@@ -704,23 +716,30 @@ def handle_audio_data(data):
                     if isinstance(audio_buffer, memoryview):
                         # Convert memoryview to bytes
                         audio_bytes = audio_buffer.tobytes()
-                        
+
                         # Log detailed info about the first chunk
                         if not hasattr(handle_audio_data, "first_log_done"):
                             import numpy as np
+
                             # Peek at the data to verify it's in the right format
-                            int16_peek = np.frombuffer(audio_buffer[:20], dtype=np.int16)
+                            int16_peek = np.frombuffer(
+                                audio_buffer[:20], dtype=np.int16
+                            )
                             logger.info(f"First few samples: {int16_peek}")
                     elif isinstance(audio_buffer, bytes):
                         # Already bytes, use directly
                         audio_bytes = audio_buffer
                     else:
                         # Unexpected type, try to convert and log a warning
-                        logger.warning(f"Unexpected audio buffer type: {type(audio_buffer)}")
+                        logger.warning(
+                            f"Unexpected audio buffer type: {type(audio_buffer)}"
+                        )
                         try:
                             audio_bytes = bytes(audio_buffer)
                         except Exception as e:
-                            logger.error(f"Failed to convert audio buffer to bytes: {e}")
+                            logger.error(
+                                f"Failed to convert audio buffer to bytes: {e}"
+                            )
                             return
 
                     # Log the first time we receive audio data
