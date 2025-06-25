@@ -144,6 +144,12 @@ class AgentTemplates:
             case "travel":
                 self.travel()
 
+        if self.industry != "deepgram":
+            # deepgram has its own specific prompt based on the product documentation
+            self.prompt = PROMPT_TEMPLATE.format(
+                current_date=datetime.now().strftime("%A, %B %d, %Y")
+            )
+
         self.first_message = f"Hello! I'm {self.voiceName} from {self.company} customer service. {self.capabilities} How can I help you today?"
 
         self.settings["agent"]["speak"]["provider"]["model"] = self.voiceModel
