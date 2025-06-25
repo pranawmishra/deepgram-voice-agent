@@ -13,7 +13,7 @@ import time
 import requests
 from datetime import datetime
 from common.agent_functions import FUNCTION_MAP
-from common.agent_templates import AgentTemplates
+from common.agent_templates import AgentTemplates, AGENT_AUDIO_SAMPLE_RATE
 import logging
 from common.business_logic import MOCK_DATA
 from common.log_formatter import CustomFormatter
@@ -39,9 +39,10 @@ logging.getLogger().handlers = []
 class VoiceAgent:
     def __init__(
         self,
-        industry="tech_support",
+        industry="deepgram",
         voiceModel="aura-2-thalia-en",
         voiceName="",
+        browser_audio=False,
     ):
         self.mic_audio_queue = asyncio.Queue()
         self.speaker = None
@@ -52,6 +53,8 @@ class VoiceAgent:
         self.stream = None
         self.input_device_id = None
         self.output_device_id = None
+        self.browser_audio = browser_audio  # For browser microphone input
+        self.browser_output = browser_audio  # Use same setting for browser output
         self.agent_templates = AgentTemplates(industry, voiceModel, voiceName)
 
     def set_loop(self, loop):
@@ -161,16 +164,35 @@ class VoiceAgent:
 
     async def sender(self):
         try:
+            # Log when sender starts
+            logger.info(f"Audio sender started (browser_audio={self.browser_audio})")
+
+            # Track if we've logged the first chunk
+            first_chunk = True
+
             while self.is_running:
                 data = await self.mic_audio_queue.get()
                 if self.ws and data:
+                    # Log the first audio chunk we send
+                    if first_chunk:
+                        logger.info(
+                            f"Sending first audio chunk to Deepgram: {len(data)} bytes"
+                        )
+                        first_chunk = False
+
+                    # Send the audio data to Deepgram
                     await self.ws.send(data)
+
         except Exception as e:
             logger.error(f"Error in sender: {e}")
+            # Print stack trace for debugging
+            import traceback
+
+            logger.error(traceback.format_exc())
 
     async def receiver(self):
         try:
-            self.speaker = Speaker()
+            self.speaker = Speaker(browser_output=self.browser_output)
             last_user_message = None
             last_function_response_time = None
             in_function_chain = False
@@ -209,10 +231,10 @@ class VoiceAgent:
                                 in_function_chain = True
 
                         elif message_type == "FunctionCallRequest":
-                            functions = message_json.get("functions")
+                            functions = message_json.get("functions", [])
                             if len(functions) > 1:
                                 raise NotImplementedError(
-                                    "Multiple functions received in FunctionCallRequest"
+                                    "Multiple functions not supported"
                                 )
                             function_name = functions[0].get("name")
                             function_call_id = functions[0].get("id")
@@ -344,7 +366,10 @@ class VoiceAgent:
 
         self.is_running = True
         try:
-            stream, audio = await self.start_microphone()
+            # Only start the microphone if not using browser audio
+            if not self.browser_audio:
+                stream, audio = await self.start_microphone()
+
             await asyncio.gather(
                 self.sender(),
                 self.receiver(),
@@ -359,7 +384,7 @@ class VoiceAgent:
 
 
 class Speaker:
-    def __init__(self, agent_audio_sample_rate=None):
+    def __init__(self, agent_audio_sample_rate=None, browser_output=False):
         self._queue = None
         self._stream = None
         self._thread = None
@@ -367,6 +392,7 @@ class Speaker:
         self.agent_audio_sample_rate = (
             agent_audio_sample_rate if agent_audio_sample_rate else 16000
         )
+        self.browser_output = browser_output
 
     def __enter__(self):
         audio = pyaudio.PyAudio()
@@ -380,7 +406,9 @@ class Speaker:
         self._queue = janus.Queue()
         self._stop = threading.Event()
         self._thread = threading.Thread(
-            target=_play, args=(self._queue, self._stream, self._stop), daemon=True
+            target=_play,
+            args=(self._queue, self._stream, self._stop, self.browser_output),
+            daemon=True,
         )
         self._thread.start()
 
@@ -405,11 +433,23 @@ class Speaker:
                     break
 
 
-def _play(audio_out, stream, stop):
+def _play(audio_out, stream, stop, browser_output=False):
     while not stop.is_set():
         try:
             data = audio_out.sync_q.get(True, 0.05)
+            # Play audio through system speakers
             stream.write(data)
+
+            # If browser output is enabled, send audio to browser via WebSocket
+            if browser_output and socketio:
+                try:
+                    # Send audio data to browser clients with sample rate information
+                    socketio.emit(
+                        "audio_output",
+                        {"audio": data, "sampleRate": AGENT_AUDIO_SAMPLE_RATE},
+                    )
+                except Exception as e:
+                    logger.error(f"Error sending audio to browser: {e}")
         except queue.Empty:
             pass
 
@@ -617,17 +657,21 @@ def handle_start_voice_agent(data=None):
     global voice_agent
     logger.info(f"Starting voice agent with data: {data}")
     if voice_agent is None:
-        # Get industry from data or default to tech_support
-        industry = data.get("industry", "tech_support") if data else "tech_support"
+        # Get industry from data or default to deepgram
+        industry = data.get("industry", "deepgram") if data else "deepgram"
         voiceModel = (
             data.get("voiceModel", "aura-2-thalia-en") if data else "aura-2-thalia-en"
         )
         # Get voice name from data or default to empty string, which uses the Model's voice name in the backend
         voiceName = data.get("voiceName", "") if data else ""
+        # Check if browser is handling audio capture
+        browser_audio = data.get("browserAudio", False) if data else False
+
         voice_agent = VoiceAgent(
             industry=industry,
             voiceModel=voiceModel,
             voiceName=voiceName,
+            browser_audio=browser_audio,
         )
         if data:
             voice_agent.input_device_id = data.get("inputDeviceId")
@@ -649,6 +693,74 @@ def handle_stop_voice_agent():
             except Exception as e:
                 logger.error(f"Error stopping voice agent: {e}")
         voice_agent = None
+
+
+@socketio.on("audio_data")
+def handle_audio_data(data):
+    global voice_agent
+    if voice_agent and voice_agent.is_running and voice_agent.browser_audio:
+        try:
+            # Get the audio buffer and sample rate
+            audio_buffer = data.get("audio")
+            sample_rate = data.get(
+                "sampleRate", 44100
+            )  # Default to 44.1kHz if not specified
+
+            if audio_buffer:
+                try:
+                    # Convert the binary data to bytes
+                    # Socket.IO binary data can come as either memoryview or bytes
+                    if isinstance(audio_buffer, memoryview):
+                        # Convert memoryview to bytes
+                        audio_bytes = audio_buffer.tobytes()
+
+                        # Log detailed info about the first chunk
+                        if not hasattr(handle_audio_data, "first_log_done"):
+                            import numpy as np
+
+                            # Peek at the data to verify it's in the right format
+                            int16_peek = np.frombuffer(
+                                audio_buffer[:20], dtype=np.int16
+                            )
+                            logger.info(f"First few samples: {int16_peek}")
+                    elif isinstance(audio_buffer, bytes):
+                        # Already bytes, use directly
+                        audio_bytes = audio_buffer
+                    else:
+                        # Unexpected type, try to convert and log a warning
+                        logger.warning(
+                            f"Unexpected audio buffer type: {type(audio_buffer)}"
+                        )
+                        try:
+                            audio_bytes = bytes(audio_buffer)
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to convert audio buffer to bytes: {e}"
+                            )
+                            return
+
+                    # Log the first time we receive audio data
+                    if not hasattr(handle_audio_data, "first_log_done"):
+                        logger.info(
+                            f"Received first browser audio chunk: {len(audio_bytes)} bytes, sample rate: {sample_rate}Hz"
+                        )
+                        handle_audio_data.first_log_done = True
+
+                    # Put the audio data in the queue for processing
+                    if voice_agent.loop and not voice_agent.loop.is_closed():
+                        asyncio.run_coroutine_threadsafe(
+                            voice_agent.mic_audio_queue.put(audio_bytes),
+                            voice_agent.loop,
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"Error converting audio buffer: {e}, type: {type(audio_buffer)}"
+                    )
+                    import traceback
+
+                    logger.error(traceback.format_exc())
+        except Exception as e:
+            logger.error(f"Error processing browser audio data: {e}")
 
 
 if __name__ == "__main__":

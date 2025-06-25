@@ -121,52 +121,52 @@
         let messageCounter = 0;
         const messageHeights = new Map(); // Store heights by counter
         const messageOrder = []; // Keep track of message order
-        let currentIndustry = 'tech_support'; // Default industry
-        let currentIndustryName = 'Tech Support'; // Default industry name
+        let currentIndustry = 'deepgram'; // Default industry
+        let currentIndustryName = 'Deepgram'; // Default industry name
         let currentVoiceModel = 'aura-2-thalia-en'; // Default voice model
         let currentVoiceName = ''; // Will be populated from the model name
 
         // Populate audio devices
 async function loadAudioDevices() {
     try {
-        // Request permission to access audio devices for the browser
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop());
-        
         // Clear existing options
         inputSelect.innerHTML = '';
         
         // First add a "Default" option
         const defaultOption = document.createElement('option');
-        defaultOption.value = "";
-        defaultOption.text = "Default (System)";
+        defaultOption.value = "default";
+        defaultOption.text = "Default Device";
+        defaultOption.selected = true;
         inputSelect.appendChild(defaultOption);
         
-        // Fetch actual PyAudio devices from the backend
-        const response = await fetch('/audio-devices');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        // Get browser audio devices
+        const devices = await navigator.mediaDevices.enumerateDevices();
         
-        const data = await response.json();
-        console.log('Backend audio devices:', data.devices);
+        // Filter for audio input devices only
+        const audioInputDevices = devices.filter(device => device.kind === 'audioinput');
         
-        // Add the backend PyAudio devices
-        if (data.devices && data.devices.length > 0) {
-            data.devices.forEach(device => {
+        // Add browser audio devices
+        audioInputDevices.forEach((device, index) => {
+            // Skip default device which has empty label
+            if (device.label) {
                 const option = document.createElement('option');
-                option.value = device.index.toString();
-                option.text = `${device.name} (Index: ${device.index})`;
+                option.value = device.deviceId;
+                option.text = device.label || `Microphone ${index + 1}`;
                 inputSelect.appendChild(option);
-                
-                // If this is pipewire, select it by default
-                if (device.name.toLowerCase().includes('pipewire')) {
-                    option.selected = true;
-                }
-            });
-        }
+            }
+        });
         
-        console.log(`Found ${data.devices.length} input devices from backend`);
+        console.log(`Found ${audioInputDevices.length} browser audio input devices`);
+        
+        // If no devices with labels were found (which happens when permission hasn't been granted yet)
+        if (audioInputDevices.filter(d => d.label).length === 0) {
+            // Request permission to access audio devices for the browser
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(track => track.stop());
+            
+            // Try again after getting permission
+            return loadAudioDevices();
+        }
     } catch (err) {
         console.error('Error loading audio devices:', err);
         statusDiv.textContent = 'Error: Could not access audio devices';
@@ -346,29 +346,64 @@ async function loadAudioDevices() {
         // Send selected devices to server when starting
         startButton.addEventListener('click', async () => {
             if (!isActive) {
-                const hasPermission = await requestMicrophonePermission();
-                if (!hasPermission) {
-                    alert('Microphone permission is required for the voice agent to work.');
-                    return;
+                try {
+                    // Update status to show we're initializing
+                    statusDiv.textContent = 'Initializing audio capture...';
+                    
+                    // First check for microphone permission
+                    const hasPermission = await requestMicrophonePermission();
+                    if (!hasPermission) {
+                        statusDiv.textContent = 'Microphone permission denied';
+                        alert('Microphone permission is required for the voice agent to work.');
+                        return;
+                    }
+                    
+                    // Start capturing audio from the browser FIRST
+                    // This ensures we have audio working before starting the voice agent
+                    console.log('Starting audio capture...');
+                    const captureStarted = await startAudioCapture();
+                    if (!captureStarted) {
+                        statusDiv.textContent = 'Failed to start audio capture';
+                        alert('Failed to start audio capture. Please check your microphone settings and browser permissions.');
+                        return;
+                    }
+                    
+                    console.log('Audio capture started successfully, starting voice agent...');
+                    statusDiv.textContent = 'Starting voice agent...';
+                    
+                    // Now start the voice agent on the server
+                    socket.emit('start_voice_agent', {
+                        inputDeviceId: inputSelect.value,
+                        industry: currentIndustry,
+                        voiceModel: currentVoiceModel,
+                        voiceName: currentVoiceName,
+                        browserAudio: true // Flag to indicate browser is handling audio
+                    });
+                    
+                    startButton.textContent = 'Stop Voice Agent';
+                    statusDiv.textContent = 'Microphone: Active';
+                    isActive = true;
+                } catch (err) {
+                    console.error('Error in voice agent initialization:', err);
+                    statusDiv.textContent = 'Error: ' + err.message;
+                    alert('Error initializing voice agent: ' + err.message);
+                    stopAudioCapture(); // Clean up any partial initialization
                 }
-
-                socket.emit('start_voice_agent', {
-                    inputDeviceId: inputSelect.value,
-                    industry: currentIndustry,
-                    voiceModel: currentVoiceModel,
-                    voiceName: currentVoiceName
-                });
-                startButton.textContent = 'Stop Voice Agent';
-                statusDiv.textContent = 'Microphone: Active';
-                isActive = true;
             } else {
                 socket.emit('stop_voice_agent');
+                stopAudioCapture();
                 startButton.textContent = 'Start Voice Agent';
                 statusDiv.textContent = 'Microphone: Not active';
                 isActive = false;
             }
         });
 
+        // Audio processing variables
+        let audioContext;
+        let mediaStream;
+        let processor;
+        let microphone;
+        
         async function requestMicrophonePermission() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -380,6 +415,140 @@ async function loadAudioDevices() {
                 statusDiv.textContent = 'Microphone: Permission denied';
                 return false;
             }
+        }
+        
+        async function startAudioCapture() {
+            try {
+                // Get the selected device ID
+                const deviceId = inputSelect.value;
+                
+                console.log('Starting audio capture with device ID:', deviceId);
+                
+                // Step 1: Request microphone permission with minimal constraints first
+                console.log('Requesting microphone permission...');
+                let stream;
+                try {
+                    // First try with just basic audio permission
+                    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    console.log('Basic microphone permission granted');
+                } catch (permissionErr) {
+                    console.error('Error getting microphone permission:', permissionErr);
+                    alert('Microphone permission denied: ' + permissionErr.message);
+                    return false;
+                }
+                
+                // Step 2: Now that we have permission, try with our desired constraints
+                try {
+                    // Configure audio constraints
+                    const audioConstraints = {
+                        // Use minimal constraints for better compatibility
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    };
+                    
+                    // Add deviceId constraint if a specific device is selected
+                    if (deviceId && deviceId !== 'default') {
+                        audioConstraints.deviceId = { exact: deviceId };
+                    }
+                    
+                    // Stop the initial stream
+                    stream.getTracks().forEach(track => track.stop());
+                    
+                    // Get the audio stream with our desired constraints
+                    mediaStream = await navigator.mediaDevices.getUserMedia({
+                        audio: audioConstraints
+                    });
+                    
+                    console.log('MediaStream obtained successfully with constraints');
+                } catch (constraintErr) {
+                    console.error('Error with audio constraints, falling back to basic stream:', constraintErr);
+                    // If constraints fail, use the original stream
+                    mediaStream = stream;
+                }
+                
+                // Step 3: Create audio context and processing pipeline
+                try {
+                    // Create audio context
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    console.log('AudioContext created with input sample rate:', audioContext.sampleRate);
+                    
+                    // Create microphone source
+                    microphone = audioContext.createMediaStreamSource(mediaStream);
+                    console.log('Microphone source created');
+                    
+                    // Create script processor node for audio processing
+                    // Note: ScriptProcessorNode is deprecated but has better browser support than AudioWorklet
+                    const bufferSize = 4096;
+                    processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
+                    console.log('Processor created with buffer size:', bufferSize);
+                    
+                    // Connect the nodes
+                    microphone.connect(processor);
+                    processor.connect(audioContext.destination);
+                    
+                    // Process audio data
+                    processor.onaudioprocess = function(e) {
+                        if (!isActive) return;
+                        
+                        // Get the audio data from the input channel
+                        const inputData = e.inputBuffer.getChannelData(0);
+                        
+                        // Convert to Int16 format for better compatibility with server-side processing
+                        const pcmData = new Int16Array(inputData.length);
+                        for (let i = 0; i < inputData.length; i++) {
+                            // Convert from [-1.0, 1.0] to [-32768, 32767]
+                            pcmData[i] = Math.max(-32768, Math.min(32767, Math.floor(inputData[i] * 32767)));
+                        }
+                        
+                        // Send the audio data to the server
+                        // Using binary transfer mode with Socket.IO
+                        socket.emit('audio_data', {
+                            audio: pcmData,
+                            sampleRate: audioContext.sampleRate
+                        });
+                    };
+                    
+                    console.log('Audio capture setup complete');
+                    return true;
+                } catch (audioErr) {
+                    console.error('Error setting up audio processing:', audioErr);
+                    // Clean up the stream if audio processing setup fails
+                    if (mediaStream) {
+                        mediaStream.getTracks().forEach(track => track.stop());
+                    }
+                    alert('Error setting up audio processing: ' + audioErr.message);
+                    return false;
+                }
+            } catch (err) {
+                console.error('Unexpected error in startAudioCapture:', err);
+                alert('Unexpected error starting audio capture: ' + err.message);
+                return false;
+            }
+        }
+        
+        function stopAudioCapture() {
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            
+            if (microphone) {
+                microphone.disconnect();
+                microphone = null;
+            }
+            
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            // Also stop audio output
+            stopAudioOutput();
         }
 
         function createSpacer(height) {
@@ -561,6 +730,116 @@ async function loadAudioDevices() {
         socket.on('error', (error) => {
             console.error('Socket error:', error);
             alert('An error occurred. Please check the console for details.');
+        });
+        
+        // Audio output variables
+        let audioOutputContext = null;
+        let audioOutputQueue = [];
+        let isAudioOutputPlaying = false;
+        let nextPlayTime = 0; // Track when the next audio chunk should start
+        let audioOutputSampleRate = 16000; // Default, will be updated from server
+        
+        // Function to play audio output received from the server
+        function playAudioOutput(audioData, sampleRate) {
+            try {
+                // Create audio context if it doesn't exist
+                if (!audioOutputContext) {
+                    audioOutputContext = new (window.AudioContext || window.webkitAudioContext)();
+                    // Initialize nextPlayTime to current audio context time
+                    nextPlayTime = audioOutputContext.currentTime;
+                }
+                
+                // Update sample rate if provided
+                if (sampleRate) {
+                    audioOutputSampleRate = sampleRate;
+                }
+                
+                // Convert the binary audio data to Int16Array (raw PCM format from server)
+                const pcmData = new Int16Array(audioData);
+                
+                // Create a float32 array for the audio buffer
+                const floatData = new Float32Array(pcmData.length);
+                
+                // Convert Int16 PCM to Float32 audio data
+                for (let i = 0; i < pcmData.length; i++) {
+                    // Convert from Int16 (-32768 to 32767) to Float32 (-1.0 to 1.0)
+                    floatData[i] = pcmData[i] / 32768.0;
+                }
+                
+                // Create an audio buffer with the correct sample rate
+                const audioBuffer = audioOutputContext.createBuffer(1, floatData.length, audioOutputSampleRate);
+                audioBuffer.getChannelData(0).set(floatData);
+                
+                // Schedule the audio buffer for seamless playback
+                scheduleAudioBuffer(audioBuffer);
+                
+            } catch (err) {
+                console.error('Error processing audio output:', err);
+            }
+        }
+        
+        // Schedule audio buffer for seamless playback
+        function scheduleAudioBuffer(audioBuffer) {
+            try {
+                // Create audio source
+                const source = audioOutputContext.createBufferSource();
+                source.buffer = audioBuffer;
+                
+                // Add a gain node for volume control
+                const gainNode = audioOutputContext.createGain();
+                gainNode.gain.value = 1.0; // Full volume
+                
+                // Connect the nodes
+                source.connect(gainNode);
+                gainNode.connect(audioOutputContext.destination);
+                
+                // Calculate when this chunk should start playing
+                const currentTime = audioOutputContext.currentTime;
+                const bufferDuration = audioBuffer.duration;
+                
+                // If nextPlayTime is in the past or too close to current time, start immediately
+                if (nextPlayTime <= currentTime + 0.01) {
+                    nextPlayTime = currentTime + 0.01; // Small buffer to prevent glitches
+                }
+                
+                // Schedule the audio to start at the calculated time
+                source.start(nextPlayTime);
+                
+                // Update nextPlayTime for the next chunk
+                nextPlayTime += bufferDuration;
+                
+                // Clean up old scheduled times if they're getting too far ahead
+                const maxLookahead = 1.0; // Maximum 1 second lookahead
+                if (nextPlayTime > currentTime + maxLookahead) {
+                    nextPlayTime = currentTime + 0.1; // Reset with small buffer
+                }
+                
+            } catch (err) {
+                console.error('Error scheduling audio buffer:', err);
+                // Reset timing on error
+                nextPlayTime = audioOutputContext.currentTime;
+            }
+        }
+        
+        // Clean up audio output resources
+        function stopAudioOutput() {
+            // Reset timing
+            nextPlayTime = 0;
+            
+            // Close the audio context to release resources
+            if (audioOutputContext && audioOutputContext.state !== 'closed') {
+                audioOutputContext.close();
+                audioOutputContext = null;
+            }
+            
+            // Reset variables
+            audioOutputSampleRate = 16000;
+        }
+
+        socket.on('audio_output', (data) => {
+            if (isActive) {
+                playAudioOutput(data.audio, data.sampleRate);
+            }
         });
 
         showLogsToggle.addEventListener('change', () => {

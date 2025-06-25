@@ -1,13 +1,31 @@
 from common.agent_functions import FUNCTION_DEFINITIONS
-from common.prompt_templates import PROMPT_TEMPLATE
+from common.prompt_templates import DEEPGRAM_PROMPT_TEMPLATE, PROMPT_TEMPLATE
 from datetime import datetime
 import os
 import glob
 
 
+# Function to read documentation files from the deepgram-docs/fern/docs directory
+def read_documentation_files(docs_dir):
+    """Read all .mdx files in the specified directory and return their contents as a dictionary."""
+    documentation = {}
+    if not os.path.exists(docs_dir):
+        return documentation
 
+    # Get all .mdx files in the directory
+    mdx_files = glob.glob(os.path.join(docs_dir, "*.mdx"))
 
+    for file_path in mdx_files:
+        try:
+            with open(file_path, "r", encoding="utf-8") as file:
+                content = file.read()
+                # Use the filename without extension as the key
+                key = os.path.basename(file_path).replace(".mdx", "")
+                documentation[key] = content
+        except Exception as e:
+            print(f"Error reading {file_path}: {e}")
 
+    return documentation
 VOICE = "aura-2-thalia-en"
 
 # audio settings
@@ -72,9 +90,10 @@ SETTINGS = {"type": "Settings", "audio": AUDIO_SETTINGS, "agent": AGENT_SETTINGS
 class AgentTemplates:
     def __init__(
         self,
-        industry="tech_support",
+        industry="deepgram",
         voiceModel="aura-2-thalia-en",
         voiceName="",
+        docs_dir="deepgram-docs/fern/docs",
     ):
         self.voiceModel = voiceModel
         if voiceName == "":
@@ -98,8 +117,20 @@ class AgentTemplates:
         self.agent_audio_bytes_per_sec = AGENT_AUDIO_BYTES_PER_SEC
 
         match self.industry:
-            case "tech_support":
-                self.tech_support()
+            case "deepgram":
+                self.deepgram()
+
+                # Format documentation for the prompt
+                doc_text = ""
+                # Read documentation files
+                self.documentation = read_documentation_files(docs_dir)
+
+                if self.documentation:
+                    doc_text = "Available documentation topics: " + ", ".join(
+                        self.documentation.keys()
+                    )
+
+                self.prompt = DEEPGRAM_PROMPT_TEMPLATE.format(documentation=doc_text)
             case "healthcare":
                 self.healthcare()
             case "banking":
@@ -111,6 +142,12 @@ class AgentTemplates:
             case "travel":
                 self.travel()
 
+        if self.industry != "deepgram":
+            # deepgram has its own specific prompt based on the product documentation
+            self.prompt = PROMPT_TEMPLATE.format(
+                current_date=datetime.now().strftime("%A, %B %d, %Y")
+            )
+
         self.first_message = f"Hello! I'm {self.voiceName} from {self.company} customer service. {self.capabilities} How can I help you today?"
 
         self.settings["agent"]["speak"]["provider"]["model"] = self.voiceModel
@@ -119,24 +156,10 @@ class AgentTemplates:
 
         self.prompt = self.personality + "\n\n" + self.prompt
 
-    def tech_support(
-        self, company="TechStyle", agent_voice="aura-2-thalia-en", voiceName=""
-    ):
-        if voiceName == "":
-            voiceName = self.get_voice_name_from_model(agent_voice)
-        self.voiceName = voiceName
+    def deepgram(self, company="Deepgram"):
         self.company = company
-        self.voiceModel = agent_voice
-
-        self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, an online electronics and accessories retailer. Your role is to assist customers with orders, appointments, and general inquiries."
-
-        self.capabilities = "I'd love to help you with your order or appointment."
-
-    def tech_support(self, company="TechStyle"):
-        self.company = company
-        self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, a tech-forward company who uses technology to improve the lives of their customers. Your role is to assist potential customers about their applications and services."
-        self.capabilities = "I can help you answer questions about our tech."
-
+        self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, a Voice API company who provides STT and TTS capabilities via API. Your role is to assist potential customers with general inquiries about Deepgram."
+        self.capabilities = "I can help you answer questions about Deepgram."
     def healthcare(self, company="HealthFirst"):
         self.company = company
         self.personality = f"You are {self.voiceName}, a compassionate and knowledgeable healthcare assistant for {self.company}, a leading healthcare provider. Your role is to assist patients with general information about their appointments and orders."
@@ -166,7 +189,7 @@ class AgentTemplates:
     def get_available_industries():
         """Return a dictionary of available industries with display names"""
         return {
-            "tech_support": "Tech Support",
+            "deepgram": "Deepgram",
             "healthcare": "Healthcare",
             "banking": "Banking",
             "pharmaceuticals": "Pharmaceuticals",
