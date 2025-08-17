@@ -43,7 +43,6 @@ app.db
 # Misc
 mock_data_outputs/
 misc/
-pyproject.toml
 poetry.lock
 
 # Deepgram docs

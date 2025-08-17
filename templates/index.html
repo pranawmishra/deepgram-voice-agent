@@ -443,7 +443,15 @@ async function loadAudioDevices() {
                     const audioConstraints = {
                         // Use minimal constraints for better compatibility
                         echoCancellation: true,
-                        noiseSuppression: true
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        googEchoCancellation: true,  // Chrome-specific
+                        googAutoGainControl: true,   // Chrome-specific  
+                        googNoiseSuppression: true,  // Chrome-specific
+                        googHighpassFilter: true,    // Chrome-specific
+                        googTypingNoiseDetection: true, // Chrome-specific
+                        sampleRate: 16000,
+                        channelCount: 1
                     };
                     
                     // Add deviceId constraint if a specific device is selected
@@ -469,7 +477,7 @@ async function loadAudioDevices() {
                 // Step 3: Create audio context and processing pipeline
                 try {
                     // Create audio context
-                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    audioContext = new AudioContext({sampleRate: 16000});
                     console.log('AudioContext created with input sample rate:', audioContext.sampleRate);
                     
                     // Create microphone source
@@ -787,7 +795,7 @@ async function loadAudioDevices() {
                 
                 // Add a gain node for volume control
                 const gainNode = audioOutputContext.createGain();
-                gainNode.gain.value = 1.0; // Full volume
+                gainNode.gain.value = 0; // Full volume
                 
                 // Connect the nodes
                 source.connect(gainNode);

@@ -1,5 +1,5 @@
 from common.agent_functions import FUNCTION_DEFINITIONS
-from common.prompt_templates import DEEPGRAM_PROMPT_TEMPLATE, PROMPT_TEMPLATE
+from common.prompt_templates import DEEPGRAM_PROMPT_TEMPLATE, PROMPT_TEMPLATE, CUSTOMER_SERVICE_PROMPT_TEMPLATE
 from datetime import datetime
 import os
 import glob
@@ -29,7 +29,7 @@ def read_documentation_files(docs_dir):
 VOICE = "aura-2-thalia-en"
 
 # audio settings
-USER_AUDIO_SAMPLE_RATE = 48000
+USER_AUDIO_SAMPLE_RATE = 16000
 USER_AUDIO_SECS_PER_CHUNK = 0.05
 USER_AUDIO_SAMPLES_PER_CHUNK = round(USER_AUDIO_SAMPLE_RATE * USER_AUDIO_SECS_PER_CHUNK)
 
@@ -59,9 +59,9 @@ LISTEN_SETTINGS = {
 
 THINK_SETTINGS = {
     "provider": {
-        "type": "open_ai",
-        "model": "gpt-4o-mini",
-        "temperature": 0.7,
+        "type": "google",
+        "model": "gemini-2.5-flash",
+        # "temperature": 0.7,
     },
     "prompt": PROMPT_TEMPLATE.format(
         current_date=datetime.now().strftime("%A, %B %d, %Y")
@@ -131,6 +131,7 @@ class AgentTemplates:
                     )
 
                 self.prompt = DEEPGRAM_PROMPT_TEMPLATE.format(documentation=doc_text)
+                # self.prompt = PROMPT_TEMPLATE.format(documentation=doc_text)
             case "healthcare":
                 self.healthcare()
             case "banking":
@@ -141,14 +142,17 @@ class AgentTemplates:
                 self.retail()
             case "travel":
                 self.travel()
-
-        if self.industry != "deepgram":
+            case "customer_service":
+                self.customer_service()
+        if self.industry != "deepgram" and self.industry != "customer_service":
             # deepgram has its own specific prompt based on the product documentation
             self.prompt = PROMPT_TEMPLATE.format(
                 current_date=datetime.now().strftime("%A, %B %d, %Y")
             )
+        elif self.industry == "customer_service":
+            self.prompt = CUSTOMER_SERVICE_PROMPT_TEMPLATE
 
-        self.first_message = f"Hello! I'm {self.voiceName} from {self.company} customer service. {self.capabilities} How can I help you today?"
+        self.first_message = f"Hello! I'm Friday from {self.company} customer service. {self.capabilities} How can I help you today?"
 
         self.settings["agent"]["speak"]["provider"]["model"] = self.voiceModel
         self.settings["agent"]["think"]["prompt"] = self.prompt
@@ -185,6 +189,11 @@ class AgentTemplates:
         self.personality = f"You are {self.voiceName}, a friendly and professional customer service representative for {self.company}, a tech-forward travel agency. Your role is to assist customers with general information about their travel plans and orders."
         self.capabilities = "I can help you answer questions about travel."
 
+    def customer_service(self, company="Appointment Scheduler"):
+        self.company = company
+        self.personality = f"You are Friday, a friendly and professional customer service representative for {self.company}, a customer service company. Your role is to assist customers with general information about their orders and transactions."
+        self.capabilities = "I can help you answer questions about current date and time and scheduling doctor's appointments."
+
     @staticmethod
     def get_available_industries():
         """Return a dictionary of available industries with display names"""
@@ -195,6 +204,7 @@ class AgentTemplates:
             "pharmaceuticals": "Pharmaceuticals",
             "retail": "Retail",
             "travel": "Travel",
+            "customer_service": "Customer Service",
         }
 
     def get_voice_name_from_model(self, model):

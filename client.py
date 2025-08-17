@@ -1,3 +1,5 @@
+from dotenv import load_dotenv
+load_dotenv()
 from flask import Flask, render_template, jsonify
 from flask_socketio import SocketIO
 import pyaudio
@@ -251,68 +253,8 @@ class VoiceAgent:
                                         f"Function {function_name} not found"
                                     )
 
-                                # Special handling for functions that need websocket
-                                if function_name in ["agent_filler", "end_call"]:
-                                    result = await func(self.ws, parameters)
-
-                                    if function_name == "agent_filler":
-                                        # Extract messages
-                                        inject_message = result["inject_message"]
-                                        function_response = result["function_response"]
-
-                                        # First send the function response
-                                        response = {
-                                            "type": "FunctionCallResponse",
-                                            "id": function_call_id,
-                                            "name": function_name,
-                                            "content": json.dumps(function_response),
-                                        }
-                                        await self.ws.send(json.dumps(response))
-                                        logger.info(
-                                            f"Function response sent: {json.dumps(function_response)}"
-                                        )
-
-                                        # Update the last function response time
-                                        last_function_response_time = time.time()
-                                        # Then just inject the message and continue
-                                        await inject_agent_message(
-                                            self.ws, inject_message
-                                        )
-                                        continue
-
-                                    elif function_name == "end_call":
-                                        # Extract messages
-                                        inject_message = result["inject_message"]
-                                        function_response = result["function_response"]
-                                        close_message = result["close_message"]
-
-                                        # First send the function response
-                                        response = {
-                                            "type": "FunctionCallResponse",
-                                            "id": function_call_id,
-                                            "name": function_name,
-                                            "content": json.dumps(function_response),
-                                        }
-                                        await self.ws.send(json.dumps(response))
-                                        logger.info(
-                                            f"Function response sent: {json.dumps(function_response)}"
-                                        )
-
-                                        # Update the last function response time
-                                        last_function_response_time = time.time()
-
-                                        # Then wait for farewell sequence to complete
-                                        await wait_for_farewell_completion(
-                                            self.ws, self.speaker, inject_message
-                                        )
-
-                                        # Finally send the close message and exit
-                                        logger.info(f"Sending ws close message")
-                                        await close_websocket_with_timeout(self.ws)
-                                        self.is_running = False
-                                        break
-                                else:
-                                    result = await func(parameters)
+                                # ACTIVE - Simple function calling
+                                result = await func(parameters)
 
                                 execution_time = time.time() - start_time
                                 logger.info(
@@ -454,63 +396,65 @@ def _play(audio_out, stream, stop, browser_output=False):
             pass
 
 
-async def inject_agent_message(ws, inject_message):
-    """Simple helper to inject an agent message."""
-    logger.info(f"Sending InjectAgentMessage: {json.dumps(inject_message)}")
-    await ws.send(json.dumps(inject_message))
 
-
+# COMMENTED OUT - Original helper functions for complex function handling
+# async def inject_agent_message(ws, inject_message):
+#     """Simple helper to inject an agent message."""
+#     logger.info(f"Sending InjectAgentMessage: {json.dumps(inject_message)}")
+#     await ws.send(json.dumps(inject_message))
+# 
+# 
 async def close_websocket_with_timeout(ws, timeout=5):
     """Close websocket with timeout to avoid hanging if no close frame is received."""
     try:
         await asyncio.wait_for(ws.close(), timeout=timeout)
     except Exception as e:
         logger.error(f"Error during websocket closure: {e}")
-
-
-async def wait_for_farewell_completion(ws, speaker, inject_message):
-    """Wait for the farewell message to be spoken completely by the agent."""
-    # Send the farewell message
-    await inject_agent_message(ws, inject_message)
-
-    # First wait for either AgentStartedSpeaking or matching ConversationText
-    speaking_started = False
-    while not speaking_started:
-        message = await ws.recv()
-        if isinstance(message, bytes):
-            await speaker.play(message)
-            continue
-
-        try:
-            message_json = json.loads(message)
-            logger.info(f"Server: {message}")
-            if message_json.get("type") == "AgentStartedSpeaking" or (
-                message_json.get("type") == "ConversationText"
-                and message_json.get("role") == "assistant"
-                and message_json.get("content") == inject_message["message"]
-            ):
-                speaking_started = True
-        except json.JSONDecodeError:
-            continue
-
-    # Then wait for AgentAudioDone
-    audio_done = False
-    while not audio_done:
-        message = await ws.recv()
-        if isinstance(message, bytes):
-            await speaker.play(message)
-            continue
-
-        try:
-            message_json = json.loads(message)
-            logger.info(f"Server: {message}")
-            if message_json.get("type") == "AgentAudioDone":
-                audio_done = True
-        except json.JSONDecodeError:
-            continue
-
-    # Give audio time to play completely
-    await asyncio.sleep(3.5)
+# 
+# 
+# async def wait_for_farewell_completion(ws, speaker, inject_message):
+#     """Wait for the farewell message to be spoken completely by the agent."""
+#     # Send the farewell message
+#     await inject_agent_message(ws, inject_message)
+# 
+#     # First wait for either AgentStartedSpeaking or matching ConversationText
+#     speaking_started = False
+#     while not speaking_started:
+#         message = await ws.recv()
+#         if isinstance(message, bytes):
+#             await speaker.play(message)
+#             continue
+# 
+#         try:
+#             message_json = json.loads(message)
+#             logger.info(f"Server: {message}")
+#             if message_json.get("type") == "AgentStartedSpeaking" or (
+#                 message_json.get("type") == "ConversationText"
+#                 and message_json.get("role") == "assistant"
+#                 and message_json.get("content") == inject_message["message"]
+#             ):
+#                 speaking_started = True
+#         except json.JSONDecodeError:
+#             continue
+# 
+#     # Then wait for AgentAudioDone
+#     audio_done = False
+#     while not audio_done:
+#         message = await ws.recv()
+#         if isinstance(message, bytes):
+#             await speaker.play(message)
+#             continue
+# 
+#         try:
+#             message_json = json.loads(message)
+#             logger.info(f"Server: {message}")
+#             if message_json.get("type") == "AgentAudioDone":
+#                 audio_done = True
+#         except json.JSONDecodeError:
+#             continue
+# 
+#     # Give audio time to play completely
+#     await asyncio.sleep(3.5)
 
 
 # Get available audio devices
